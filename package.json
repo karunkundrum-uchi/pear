@@ -12,6 +12,7 @@
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
+    "next": "^15.5.15",
     "typescript": "^5.8.3"
   }
 }
