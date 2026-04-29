@@ -1,0 +1,16 @@
+.DS_Store
+node_modules
+.next
+.plasmo
+build
+dist
+out
+.turbo
+.vercel
+.playwright-mcp
+.pnpm-store
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example

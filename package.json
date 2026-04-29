@@ -1,0 +1,16 @@
+{
+  "name": "pear",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.10.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @pear/web dev",
+    "dev:extension": "pnpm --filter @pear/extension dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

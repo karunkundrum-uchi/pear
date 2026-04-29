@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "chrome",
+      "node",
+      "react",
+      "react-dom"
+    ],
+    "paths": {
+      "~*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    ".plasmo/index.d.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ]
+}
