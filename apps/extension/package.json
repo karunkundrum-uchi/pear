@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clerk/chrome-extension": "^3.1.19",
     "@pear/shared": "workspace:*",
     "@plasmohq/storage": "^1.15.0",
     "@supabase/supabase-js": "^2.49.4",
@@ -27,8 +28,8 @@
   "manifest": {
     "name": "Pear",
     "description": "Intentional friction for high-risk doomscrolling windows.",
-    "permissions": ["storage", "tabs", "webNavigation", "activeTab", "scripting"],
-    "host_permissions": ["<all_urls>"],
+    "permissions": ["cookies", "storage", "tabs", "webNavigation"],
+    "host_permissions": ["<all_urls>", "$PLASMO_PUBLIC_CLERK_SYNC_HOST/*", "$CLERK_FRONTEND_API/*"],
     "action": {
       "default_title": "Pear",
       "default_popup": "popup.html"

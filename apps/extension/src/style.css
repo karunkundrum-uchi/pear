@@ -93,6 +93,13 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.row-between {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
 .stack {
   display: grid;
   gap: 12px;

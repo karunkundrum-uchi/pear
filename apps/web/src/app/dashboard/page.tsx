@@ -327,10 +327,11 @@ export default function DashboardPage() {
         <section className="space-y-6">
           <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold text-slate-950">Extension setup</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              The web app now uses Clerk. The Chrome extension is still on the older Supabase-based auth flow and
-              needs a follow-up migration before the one-click dashboard connection works again.
-            </p>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+              <li>Sign in to Pear on the web first.</li>
+              <li>Reload the unpacked extension in Chrome.</li>
+              <li>Open the popup and reopen it once if you just signed in.</li>
+            </ol>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

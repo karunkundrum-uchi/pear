@@ -1,3 +1,4 @@
+import { createClerkClient } from "@clerk/chrome-extension/background"
 import {
   DEFAULT_GRACE_PERIOD_MS,
   hostMatchesBlockedSite,
@@ -5,7 +6,7 @@ import {
   normalizeHostname,
   type TableRow
 } from "@pear/shared"
-import { getExtensionSupabase } from "./lib/supabase"
+import { createExtensionSupabaseClient } from "./lib/supabase"
 
 type BlockWindow = TableRow<"block_windows">
 type BlockedSite = TableRow<"blocked_sites">
@@ -27,7 +28,16 @@ type ConfigCache = {
 
 const CONFIG_CACHE_MS = 60 * 1000
 const GRACE_STORAGE_KEY = "pear_grace_periods"
+const clerkPublishableKey = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
+const clerkSyncHost = process.env.PLASMO_PUBLIC_CLERK_SYNC_HOST
 let configCache: ConfigCache | null = null
+
+if (!clerkPublishableKey || !clerkSyncHost) {
+  throw new Error("Missing Clerk extension environment variables")
+}
+
+const CLERK_PUBLISHABLE_KEY: string = clerkPublishableKey
+const CLERK_SYNC_HOST: string = clerkSyncHost
 
 chrome.runtime.onInstalled.addListener(() => {
   void refreshConfig()
@@ -96,20 +106,18 @@ async function maybeBlockNavigation(details: chrome.webNavigation.WebNavigationF
 }
 
 async function grantGrace(message: Extract<RuntimeMessage, { type: "PEAR_GRANT_GRACE" }>) {
-  const supabase = getExtensionSupabase()
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
-    return { ok: false, error: "Sign in to Pear first." }
+  const identity = await getIdentity()
+  if (!identity) {
+    return { ok: false, error: "Sign in on the Pear web app first, then reopen the extension." }
   }
+
+  const supabase = createExtensionSupabaseClient(identity.token)
 
   const hostname = normalizeHostname(message.hostname)
   await setGrace(hostname)
 
   const { error } = await supabase.from("override_events").insert({
-    user_id: session.user.id,
+    user_id: identity.userId,
     hostname,
     method: message.method,
     reason: message.method === "reason" ? message.reason?.trim() || null : null
@@ -132,19 +140,17 @@ async function getConfig(): Promise<ConfigCache> {
     return configCache
   }
 
-  const supabase = getExtensionSupabase()
-  const {
-    data: { session }
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
+  const identity = await getIdentity()
+  if (!identity) {
     configCache = { fetchedAt: Date.now(), windows: [], sites: [] }
     return configCache
   }
 
+  const supabase = createExtensionSupabaseClient(identity.token)
+
   const [windowsResult, sitesResult] = await Promise.all([
-    supabase.from("block_windows").select("*").eq("user_id", session.user.id).eq("enabled", true),
-    supabase.from("blocked_sites").select("*").eq("user_id", session.user.id)
+    supabase.from("block_windows").select("*").eq("user_id", identity.userId).eq("enabled", true),
+    supabase.from("blocked_sites").select("*").eq("user_id", identity.userId)
   ])
 
   if (windowsResult.error || sitesResult.error) {
@@ -187,4 +193,25 @@ async function setGrace(hostname: string) {
 async function getGrace(): Promise<Record<string, number>> {
   const result = await chrome.storage.local.get(GRACE_STORAGE_KEY)
   return result[GRACE_STORAGE_KEY] ?? {}
+}
+
+async function getIdentity() {
+  const clerk = await createClerkClient({
+    publishableKey: CLERK_PUBLISHABLE_KEY,
+    syncHost: CLERK_SYNC_HOST
+  })
+
+  if (!clerk.session || !clerk.user) {
+    return null
+  }
+
+  const token = await clerk.session.getToken()
+  if (!token) {
+    return null
+  }
+
+  return {
+    token,
+    userId: clerk.user.id
+  }
 }

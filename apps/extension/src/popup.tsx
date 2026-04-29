@@ -1,119 +1,56 @@
-import { useEffect, useState } from "react"
-import type { User } from "@supabase/supabase-js"
-import { getExtensionSupabase } from "./lib/supabase"
+import {
+  ClerkProvider,
+  Show,
+  UserButton,
+  useAuth,
+  useUser
+} from "@clerk/chrome-extension"
+import { useEffect } from "react"
 import "./style.css"
 
-type SessionTokens = {
-  access_token: string
-  refresh_token: string
+const publishableKey = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
+const syncHost = process.env.PLASMO_PUBLIC_CLERK_SYNC_HOST
+const EXTENSION_URL = chrome.runtime.getURL("")
+
+if (!publishableKey || !syncHost) {
+  throw new Error("Missing Clerk extension environment variables")
 }
 
+const PUBLISHABLE_KEY: string = publishableKey
+const SYNC_HOST: string = syncHost
+
 export default function Popup() {
-  const supabase = getExtensionSupabase()
-  const [user, setUser] = useState<User | null>(null)
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [message, setMessage] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [connecting, setConnecting] = useState(false)
+  return (
+    <ClerkProvider
+      afterSignOutUrl={`${EXTENSION_URL}popup.html`}
+      publishableKey={PUBLISHABLE_KEY}
+      signInFallbackRedirectUrl={`${EXTENSION_URL}popup.html`}
+      signUpFallbackRedirectUrl={`${EXTENSION_URL}popup.html`}
+      syncHost={SYNC_HOST}
+    >
+      <PopupContent />
+    </ClerkProvider>
+  )
+}
+
+function PopupContent() {
+  const { user } = useUser()
+  const { isLoaded, isSignedIn } = useAuth()
+  const dashboardUrl = process.env.PLASMO_PUBLIC_DASHBOARD_URL ?? "http://localhost:3000"
 
   useEffect(() => {
-    let active = true
-
-    async function loadUser() {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession()
-
-      if (active) {
-        setUser(session?.user ?? null)
-        setLoading(false)
-      }
-    }
-
-    loadUser()
-
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-      void chrome.runtime.sendMessage({ type: "PEAR_REFRESH_CONFIG" })
-    })
-
-    return () => {
-      active = false
-      data.subscription.unsubscribe()
-    }
-  }, [supabase])
-
-  async function signIn(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setMessage("")
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      setMessage(error.message)
+    if (!isLoaded) {
       return
     }
 
-    setPassword("")
-    await chrome.runtime.sendMessage({ type: "PEAR_REFRESH_CONFIG" })
+    void chrome.runtime.sendMessage({ type: "PEAR_REFRESH_CONFIG" })
+  }, [isLoaded, isSignedIn])
+
+  function openUrl(path = "") {
+    void chrome.tabs.create({ url: `${dashboardUrl}${path}` })
   }
 
-  async function signOut() {
-    await supabase.auth.signOut()
-    await chrome.runtime.sendMessage({ type: "PEAR_REFRESH_CONFIG" })
-  }
-
-  async function connectFromDashboard() {
-    setConnecting(true)
-    setMessage("")
-
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (!tab?.id || !tab.url) {
-        setMessage("Open the Pear dashboard tab first.")
-        return
-      }
-
-      const dashboardBaseUrl = process.env.PLASMO_PUBLIC_DASHBOARD_URL ?? "http://localhost:3000"
-      const dashboardOrigin = new URL(dashboardBaseUrl).origin
-
-      if (!tab.url.startsWith(dashboardOrigin)) {
-        setMessage("Open Pear in the current tab, then connect again.")
-        return
-      }
-
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: readSessionTokensFromPage
-      })
-
-      if (!result?.access_token || !result?.refresh_token) {
-        setMessage("No Pear session found in this tab. Sign in on the dashboard first.")
-        return
-      }
-
-      const { error } = await supabase.auth.setSession(result)
-      if (error) {
-        setMessage(error.message)
-        return
-      }
-
-      await chrome.runtime.sendMessage({ type: "PEAR_REFRESH_CONFIG" })
-      setPassword("")
-      setMessage("Connected to your dashboard session.")
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not connect to the dashboard tab.")
-    } finally {
-      setConnecting(false)
-    }
-  }
-
-  function openDashboard() {
-    const dashboardUrl = process.env.PLASMO_PUBLIC_DASHBOARD_URL ?? "http://localhost:3000"
-    void chrome.tabs.create({ url: `${dashboardUrl}/dashboard` })
-  }
-
-  if (loading) {
+  if (!isLoaded) {
     return (
       <main className="popup-shell">
         <p className="muted">Loading Pear...</p>
@@ -124,102 +61,43 @@ export default function Popup() {
   return (
     <main className="popup-shell">
       <p className="brand">Pear</p>
-      {user ? (
+      <Show when="signed-in">
         <section className="stack">
           <div className="card">
-            <p className="popup-title">Signed in</p>
-            <p className="small">{user.email}</p>
+            <div className="row-between">
+              <div>
+                <p className="popup-title">Signed in</p>
+                <p className="small">{user?.primaryEmailAddress?.emailAddress}</p>
+              </div>
+              <UserButton />
+            </div>
           </div>
-          <button
-            className="button-primary"
-            onClick={openDashboard}
-            type="button"
-          >
+          <button className="button-primary" onClick={() => openUrl("/dashboard")} type="button">
             Open dashboard
           </button>
-          <button
-            className="button-secondary"
-            onClick={signOut}
-            type="button"
-          >
-            Sign out
-          </button>
+          <p className="small">
+            If you just signed in on the web app, close and reopen this popup once so Pear refreshes the synced
+            session.
+          </p>
         </section>
-      ) : (
+      </Show>
+      <Show when="signed-out">
         <section className="stack">
           <div className="card">
-            <p className="popup-title">Connect Pear</p>
+            <p className="popup-title">Sign in on Pear web</p>
             <p className="small">
-              Pear web auth now uses Clerk. This extension still uses the older Supabase session flow for now.
+              Pear syncs your Clerk session from the web app. Sign in there with Google or email, then reopen this
+              popup.
             </p>
           </div>
-          <button className="button-primary" disabled={connecting} onClick={connectFromDashboard} type="button">
-            {connecting ? "Connecting..." : "Connect from dashboard tab"}
+          <button className="button-primary" onClick={() => openUrl("/sign-in")} type="button">
+            Open sign-in
           </button>
-          <button className="button-secondary" onClick={openDashboard} type="button">
+          <button className="button-secondary" onClick={() => openUrl("/dashboard")} type="button">
             Open dashboard
           </button>
-          <form className="stack subtle-section" onSubmit={signIn}>
-            <label className="block">
-              <span className="label">Email</span>
-              <input
-                className="input"
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                value={email}
-              />
-            </label>
-            <label className="block">
-              <span className="label">Password</span>
-              <input
-                className="input"
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                value={password}
-              />
-            </label>
-            <button className="button-secondary" type="submit">
-              Sign in manually
-            </button>
-          </form>
-          {message ? <p className="message">{message}</p> : null}
         </section>
-      )}
+      </Show>
     </main>
   )
-}
-
-function readSessionTokensFromPage(): SessionTokens | null {
-  const authKey = Object.keys(window.localStorage).find(
-    (key) => key.startsWith("sb-") && key.endsWith("-auth-token")
-  )
-
-  if (!authKey) {
-    return null
-  }
-
-  const raw = window.localStorage.getItem(authKey)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as
-      | {
-          access_token?: string
-          refresh_token?: string
-        }
-      | null
-
-    if (!parsed?.access_token || !parsed.refresh_token) {
-      return null
-    }
-
-    return {
-      access_token: parsed.access_token,
-      refresh_token: parsed.refresh_token
-    }
-  } catch {
-    return null
-  }
 }
