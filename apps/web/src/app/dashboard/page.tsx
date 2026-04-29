@@ -1,15 +1,14 @@
 "use client"
 
+import { useClerk, useSession, useUser } from "@clerk/nextjs"
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import type { User } from "@supabase/supabase-js"
 import {
   SITE_PRESETS,
   normalizeHostname,
   type TableInsert,
   type TableRow
 } from "@pear/shared"
-import { getBrowserSupabase } from "@/lib/supabase"
+import { createClerkSupabaseClient } from "@/lib/supabase"
 
 type BlockWindow = TableRow<"block_windows">
 type BlockedSite = TableRow<"blocked_sites">
@@ -26,9 +25,9 @@ const DAYS = [
 ]
 
 export default function DashboardPage() {
-  const router = useRouter()
-  const supabase = getBrowserSupabase()
-  const [user, setUser] = useState<User | null>(null)
+  const { session, isLoaded: sessionLoaded } = useSession()
+  const { user, isLoaded: userLoaded } = useUser()
+  const { signOut: clerkSignOut } = useClerk()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState("")
@@ -55,34 +54,36 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
-
     async function load() {
-      const { data, error } = await supabase.auth.getUser()
-      if (cancelled) {
+      if (!sessionLoaded || !userLoaded) {
         return
       }
 
-      if (error || !data.user) {
-        router.push("/auth")
-        return
-      }
-
-      setUser(data.user)
-      await loadDashboard(data.user.id)
-      if (!cancelled) {
+      if (!session || !user) {
         setLoading(false)
+        return
       }
+
+      const supabase = createClerkSupabaseClient(session)
+
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: user.id,
+        email: user.primaryEmailAddress?.emailAddress ?? null,
+        display_name: user.firstName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? null
+      })
+
+      if (profileError) {
+        setMessage(profileError.message)
+      }
+
+      await loadDashboard(user.id, supabase)
+      setLoading(false)
     }
 
-    load()
+    void load()
+  }, [session, sessionLoaded, user, userLoaded])
 
-    return () => {
-      cancelled = true
-    }
-  }, [router, supabase])
-
-  async function loadDashboard(userId: string) {
+  async function loadDashboard(userId: string, supabase = createClerkSupabaseClient(session)) {
     const [windowsResult, sitesResult, eventsResult] = await Promise.all([
       supabase
         .from("block_windows")
@@ -125,9 +126,11 @@ export default function DashboardPage() {
   async function saveConfig(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!user) {
+    if (!user || !session) {
       return
     }
+
+    const supabase = createClerkSupabaseClient(session)
 
     const custom = normalizeHostname(customHost)
     const hostnames = Array.from(new Set([...selectedHosts, custom].filter(Boolean))).map(normalizeHostname)
@@ -181,8 +184,7 @@ export default function DashboardPage() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
-    router.push("/auth")
+    await clerkSignOut({ redirectUrl: "/sign-in" })
   }
 
   if (loading) {
@@ -199,7 +201,7 @@ export default function DashboardPage() {
         <div>
           <p className="text-sm font-semibold text-teal-700">Pear</p>
           <h1 className="mt-1 text-3xl font-semibold text-slate-950">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-600">{user?.email}</p>
+          <p className="mt-1 text-sm text-slate-600">{user?.primaryEmailAddress?.emailAddress}</p>
         </div>
         <button
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
@@ -325,11 +327,10 @@ export default function DashboardPage() {
         <section className="space-y-6">
           <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-semibold text-slate-950">Extension setup</h2>
-            <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
-              <li>Load the unpacked Pear extension in Chrome once.</li>
-              <li>Keep this dashboard tab open and signed in.</li>
-              <li>Open the popup and click Connect from dashboard tab.</li>
-            </ol>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              The web app now uses Clerk. The Chrome extension is still on the older Supabase-based auth flow and
+              needs a follow-up migration before the one-click dashboard connection works again.
+            </p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

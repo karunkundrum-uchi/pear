@@ -149,7 +149,9 @@ export default function Popup() {
         <section className="stack">
           <div className="card">
             <p className="popup-title">Connect Pear</p>
-            <p className="small">Open the Pear dashboard in this window, sign in there, then connect once here.</p>
+            <p className="small">
+              Pear web auth now uses Clerk. This extension still uses the older Supabase session flow for now.
+            </p>
           </div>
           <button className="button-primary" disabled={connecting} onClick={connectFromDashboard} type="button">
             {connecting ? "Connecting..." : "Connect from dashboard tab"}

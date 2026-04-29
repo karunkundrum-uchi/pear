@@ -14,7 +14,7 @@ export default function HomePage() {
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
-            href="/auth"
+            href="/sign-in"
             className="rounded-md bg-slate-950 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
           >
             Sign in
