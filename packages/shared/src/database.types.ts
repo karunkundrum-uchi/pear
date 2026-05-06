@@ -303,6 +303,26 @@ export type Database = {
         }
         Returns: string
       }
+      find_profile_by_username: {
+        Args: {
+          requested_username: string
+        }
+        Returns: {
+          id: string
+          username: string
+          display_name: string | null
+        }[]
+      }
+      get_public_profiles: {
+        Args: {
+          profile_ids: string[]
+        }
+        Returns: {
+          id: string
+          username: string
+          display_name: string | null
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

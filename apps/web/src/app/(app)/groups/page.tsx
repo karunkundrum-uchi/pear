@@ -10,7 +10,7 @@ type GroupInvite = TableRow<"group_invites">
 type GroupMembership = TableRow<"group_memberships">
 type FriendConnection = TableRow<"friend_connections">
 type AccountabilityPreference = TableRow<"accountability_preferences">
-type Profile = TableRow<"profiles">
+type PublicProfile = Pick<TableRow<"profiles">, "id" | "username" | "display_name">
 type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
@@ -78,7 +78,7 @@ function GroupsContent({
   const [invites, setInvites] = useState<GroupInvite[]>([])
   const [friends, setFriends] = useState<FriendConnection[]>([])
   const [preferences, setPreferences] = useState<AccountabilityPreference[]>([])
-  const [profilesById, setProfilesById] = useState<Record<string, Profile>>({})
+  const [profilesById, setProfilesById] = useState<Record<string, PublicProfile>>({})
   const [groupName, setGroupName] = useState("")
   const [groupDescription, setGroupDescription] = useState("")
   const [friendUsername, setFriendUsername] = useState("")
@@ -139,9 +139,11 @@ function GroupsContent({
     )
 
     if (relatedProfileIds.length > 0) {
-      const { data: relatedProfiles } = await supabase.from("profiles").select("*").in("id", relatedProfileIds)
+      const { data: relatedProfiles } = await supabase.rpc("get_public_profiles", {
+        profile_ids: relatedProfileIds
+      })
       setProfilesById(
-        Object.fromEntries((relatedProfiles ?? []).map((profile) => [profile.id, profile]))
+        Object.fromEntries(((relatedProfiles as PublicProfile[] | null) ?? []).map((profile) => [profile.id, profile]))
       )
     } else {
       setProfilesById({})
@@ -279,11 +281,9 @@ function GroupsContent({
     const supabase = createClerkSupabaseClient(session)
     const normalizedUsername = friendUsername.trim().replace(/^@+/, "").toLowerCase()
 
-    const { data: targetProfile, error: targetProfileError } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("username", normalizedUsername)
-      .maybeSingle()
+    const { data: targetProfile, error: targetProfileError } = await supabase.rpc("find_profile_by_username", {
+      requested_username: normalizedUsername
+    })
 
     if (targetProfileError) {
       setSaving(false)
@@ -291,13 +291,15 @@ function GroupsContent({
       return
     }
 
-    if (!targetProfile) {
+    const matchingProfile = ((targetProfile as PublicProfile[] | null) ?? [])[0] ?? null
+
+    if (!matchingProfile) {
       setSaving(false)
       setMessage("No user found with that username.")
       return
     }
 
-    if (targetProfile.id === userId) {
+    if (matchingProfile.id === userId) {
       setSaving(false)
       setMessage("You cannot add yourself.")
       return
@@ -305,8 +307,8 @@ function GroupsContent({
 
     const duplicate = friends.find(
       (friend) =>
-        ((friend.user_id === userId && friend.friend_user_id === targetProfile.id) ||
-          (friend.user_id === targetProfile.id && friend.friend_user_id === userId)) &&
+        ((friend.user_id === userId && friend.friend_user_id === matchingProfile.id) ||
+          (friend.user_id === matchingProfile.id && friend.friend_user_id === userId)) &&
         friend.status !== "blocked"
     )
 
@@ -326,8 +328,8 @@ function GroupsContent({
       .from("friend_connections")
       .insert({
         user_id: userId,
-        friend_label: targetProfile.username,
-        friend_user_id: targetProfile.id,
+        friend_label: matchingProfile.username,
+        friend_user_id: matchingProfile.id,
         status: "pending"
       })
       .select("*")
