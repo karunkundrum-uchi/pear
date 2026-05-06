@@ -24,6 +24,28 @@ type ProtectedPageProps = {
   }) => React.ReactNode
 }
 
+function buildUsernameCandidate(user: ProtectedUser) {
+  const base =
+    user.username ??
+    user.primaryEmailAddress?.emailAddress?.split("@")[0] ??
+    user.firstName ??
+    "pearuser"
+
+  const normalized = base
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+
+  return normalized || "pearuser"
+}
+
+function buildInsertUsername(user: ProtectedUser) {
+  const base = buildUsernameCandidate(user)
+  const suffix = user.id.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(-8) || "profile"
+  return `${base}_${suffix}`
+}
+
 export function ProtectedPage({ children }: ProtectedPageProps) {
   const { session, isLoaded: sessionLoaded } = useSession()
   const { user, isLoaded: userLoaded } = useUser()
@@ -36,16 +58,14 @@ export function ProtectedPage({ children }: ProtectedPageProps) {
       }
 
       const supabase = createClerkSupabaseClient(session)
-      const requestedUsername =
-        user.username ??
-        user.primaryEmailAddress?.emailAddress?.split("@")[0] ??
-        user.firstName ??
-        "pearuser"
+      const requestedUsername = buildUsernameCandidate(user)
+      const insertUsername = buildInsertUsername(user)
 
       const { error } = await supabase.from("profiles").upsert({
         id: user.id,
         email: user.primaryEmailAddress?.emailAddress ?? null,
-        display_name: user.firstName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? null
+        display_name: user.firstName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? null,
+        username: insertUsername
       })
 
       if (error) {
