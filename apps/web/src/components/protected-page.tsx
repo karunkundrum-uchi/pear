@@ -60,13 +60,29 @@ export function ProtectedPage({ children }: ProtectedPageProps) {
       const supabase = createClerkSupabaseClient(session)
       const requestedUsername = buildUsernameCandidate(user)
       const insertUsername = buildInsertUsername(user)
+      const { data: existingProfile, error: profileLookupError } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", user.id)
+        .maybeSingle()
 
-      const { error } = await supabase.from("profiles").upsert({
+      if (profileLookupError) {
+        setMessage(profileLookupError.message)
+        return
+      }
+
+      const profilePayload = {
         id: user.id,
         email: user.primaryEmailAddress?.emailAddress ?? null,
-        display_name: user.firstName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? null,
-        username: insertUsername
-      })
+        display_name: user.firstName ?? user.username ?? user.primaryEmailAddress?.emailAddress ?? null
+      }
+
+      const { error } = existingProfile
+        ? await supabase.from("profiles").update(profilePayload).eq("id", user.id)
+        : await supabase.from("profiles").insert({
+            ...profilePayload,
+            username: insertUsername
+          })
 
       if (error) {
         setMessage(error.message)
