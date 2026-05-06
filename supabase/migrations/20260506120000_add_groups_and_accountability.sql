@@ -32,12 +32,13 @@ create table public.group_invites (
 create table public.friend_connections (
   id uuid primary key default gen_random_uuid(),
   user_id text not null references public.profiles(id) on delete cascade,
-  friend_user_id text not null references public.profiles(id) on delete cascade,
+  friend_user_id text references public.profiles(id) on delete cascade,
+  friend_label text not null,
   status text not null check (status in ('pending', 'active', 'blocked')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (user_id, friend_user_id),
-  check (user_id <> friend_user_id)
+  unique nulls not distinct (user_id, friend_user_id),
+  check (friend_user_id is null or user_id <> friend_user_id)
 );
 
 create table public.accountability_preferences (

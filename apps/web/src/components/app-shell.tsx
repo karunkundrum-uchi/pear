@@ -1,9 +1,11 @@
 "use client"
 
 import { useClerk, useSession, useUser } from "@clerk/nextjs"
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect } from "react"
+import { createClerkSupabaseClient } from "@/lib/supabase"
 
 const NAV_ITEMS = [
   {
@@ -29,12 +31,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { session, isLoaded: sessionLoaded } = useSession()
   const { user, isLoaded: userLoaded } = useUser()
   const { signOut } = useClerk()
+  const [accountUsername, setAccountUsername] = useState("")
 
   useEffect(() => {
     if (sessionLoaded && userLoaded && (!session || !user)) {
       router.replace("/sign-in")
     }
   }, [router, session, sessionLoaded, user, userLoaded])
+
+  useEffect(() => {
+    async function loadUsername() {
+      if (!sessionLoaded || !userLoaded || !session || !user) {
+        return
+      }
+
+      const supabase = createClerkSupabaseClient(session)
+      const { data } = await supabase.from("profiles").select("username").eq("id", user.id).maybeSingle()
+      setAccountUsername(data?.username ?? "")
+    }
+
+    void loadUsername()
+  }, [session, sessionLoaded, user, userLoaded])
 
   if (!sessionLoaded || !userLoaded || !session || !user) {
     return (
@@ -85,7 +102,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="flex items-center gap-3">
                 <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 text-right shadow-sm backdrop-blur">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Account</p>
-                  <p className="text-sm text-slate-900">{user.primaryEmailAddress?.emailAddress}</p>
+                  {accountUsername ? <p className="text-sm font-semibold text-slate-900">@{accountUsername}</p> : null}
+                  <p className="text-xs text-slate-600">{user.primaryEmailAddress?.emailAddress}</p>
                 </div>
                 <button
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50"

@@ -10,6 +10,7 @@ type BlockedSite = TableRow<"blocked_sites">
 type Group = TableRow<"groups">
 type GroupMembership = TableRow<"group_memberships">
 type OverrideEvent = TableRow<"override_events">
+type Profile = TableRow<"profiles">
 type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
@@ -42,12 +43,13 @@ function DashboardContent({
   const [events, setEvents] = useState<OverrideEvent[]>([])
   const [memberships, setMemberships] = useState<GroupMembership[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
 
   useEffect(() => {
     async function loadDashboard() {
       const supabase = createClerkSupabaseClient(session)
 
-      const [windowsResult, sitesResult, eventsResult, membershipsResult, groupsResult] = await Promise.all([
+      const [windowsResult, sitesResult, eventsResult, membershipsResult, groupsResult, profileResult] = await Promise.all([
         supabase
           .from("block_windows")
           .select("*")
@@ -56,16 +58,24 @@ function DashboardContent({
         supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true }),
         supabase.from("override_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
         supabase.from("group_memberships").select("*").eq("user_id", userId).eq("status", "active"),
-        supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false })
+        supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
+        supabase.from("profiles").select("*").eq("id", userId).single()
       ])
 
       const groupSchemaMissing = isMissingGroupSchemaError(membershipsResult.error?.message) || isMissingGroupSchemaError(groupsResult.error?.message)
 
-      if (windowsResult.error || sitesResult.error || eventsResult.error || (!groupSchemaMissing && (membershipsResult.error || groupsResult.error))) {
+      if (
+        windowsResult.error ||
+        sitesResult.error ||
+        eventsResult.error ||
+        profileResult?.error ||
+        (!groupSchemaMissing && (membershipsResult.error || groupsResult.error))
+      ) {
         setMessage(
           windowsResult.error?.message ??
             sitesResult.error?.message ??
             eventsResult.error?.message ??
+            profileResult?.error?.message ??
             membershipsResult.error?.message ??
             groupsResult.error?.message ??
             ""
@@ -79,6 +89,7 @@ function DashboardContent({
       setEvents(eventsResult.data ?? [])
       setMemberships(groupSchemaMissing ? [] : (membershipsResult.data ?? []))
       setGroups(groupSchemaMissing ? [] : (groupsResult.data ?? []))
+      setProfile(profileResult?.data ?? null)
       setMessage(groupSchemaMissing ? "Groups are not available until the new Supabase migration is applied." : "")
       setLoading(false)
     }
@@ -160,6 +171,11 @@ function DashboardContent({
 
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            description="Share this username on the Groups page so people can find you."
+            label="Username"
+            value={profile ? `@${profile.username}` : "Pending"}
+          />
           <StatCard
             description={todayPulse}
             label="Status"

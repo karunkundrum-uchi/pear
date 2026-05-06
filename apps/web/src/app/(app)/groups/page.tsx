@@ -10,6 +10,7 @@ type GroupInvite = TableRow<"group_invites">
 type GroupMembership = TableRow<"group_memberships">
 type FriendConnection = TableRow<"friend_connections">
 type AccountabilityPreference = TableRow<"accountability_preferences">
+type Profile = TableRow<"profiles">
 type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
@@ -75,7 +76,7 @@ function GroupsContent({
   const [preferences, setPreferences] = useState<AccountabilityPreference[]>([])
   const [groupName, setGroupName] = useState("")
   const [groupDescription, setGroupDescription] = useState("")
-  const [friendId, setFriendId] = useState("")
+  const [friendUsername, setFriendUsername] = useState("")
   const [inviteExposure, setInviteExposure] = useState<TableInsert<"accountability_preferences">["exposure_level"]>("event_only")
   const [inviteCadence, setInviteCadence] = useState<TableInsert<"accountability_preferences">["notification_cadence"]>("daily_digest")
   const [schemaReady, setSchemaReady] = useState(true)
@@ -215,8 +216,8 @@ function GroupsContent({
 
   async function createFriendConnection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!friendId.trim()) {
-      setMessage("Enter the friend's user id or handle placeholder.")
+    if (!friendUsername.trim()) {
+      setMessage("Enter your friend's username.")
       return
     }
 
@@ -224,11 +225,38 @@ function GroupsContent({
     setMessage("")
 
     const supabase = createClerkSupabaseClient(session)
+    const normalizedUsername = friendUsername.trim().replace(/^@+/, "").toLowerCase()
+
+    const { data: targetProfile, error: targetProfileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("username", normalizedUsername)
+      .maybeSingle()
+
+    if (targetProfileError) {
+      setSaving(false)
+      setMessage(targetProfileError.message)
+      return
+    }
+
+    if (!targetProfile) {
+      setSaving(false)
+      setMessage("No user found with that username.")
+      return
+    }
+
+    if (targetProfile.id === userId) {
+      setSaving(false)
+      setMessage("You cannot add yourself.")
+      return
+    }
+
     const { data: connection, error: connectionError } = await supabase
       .from("friend_connections")
       .insert({
         user_id: userId,
-        friend_user_id: friendId.trim(),
+        friend_label: targetProfile.username,
+        friend_user_id: targetProfile.id,
         status: "pending"
       })
       .select("*")
@@ -261,7 +289,7 @@ function GroupsContent({
 
     setFriends((current) => [connection, ...current])
     setPreferences((current) => [preference, ...current])
-    setFriendId("")
+    setFriendUsername("")
     setMessage("Friend accountability link created.")
   }
 
@@ -402,9 +430,9 @@ function GroupsContent({
                   <span className="text-sm font-medium text-slate-700">Friend identifier</span>
                   <input
                     className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                    onChange={(event) => setFriendId(event.target.value)}
-                    placeholder="clerk user id or planned handle"
-                    value={friendId}
+                    onChange={(event) => setFriendUsername(event.target.value)}
+                    placeholder="@friendusername"
+                    value={friendUsername}
                   />
                 </label>
               </div>
@@ -508,8 +536,9 @@ function GroupsContent({
                   const preference = friendPreferenceMap.get(friend.id)
                   return (
                     <article className="rounded-2xl border border-slate-200 p-4" key={friend.id}>
-                      <p className="text-sm font-semibold text-slate-950">{friend.friend_user_id}</p>
+                      <p className="text-sm font-semibold text-slate-950">{friend.friend_label}</p>
                       <div className="mt-2 grid gap-2 text-sm text-slate-600">
+                        <p>Username: @{friend.friend_label}</p>
                         <p>Status: {friend.status}</p>
                         <p>Exposure: {preference?.exposure_level ?? "event_only"}</p>
                         <p>Cadence: {preference?.notification_cadence ?? "daily_digest"}</p>

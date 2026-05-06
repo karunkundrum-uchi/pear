@@ -36,6 +36,12 @@ export function ProtectedPage({ children }: ProtectedPageProps) {
       }
 
       const supabase = createClerkSupabaseClient(session)
+      const requestedUsername =
+        user.username ??
+        user.primaryEmailAddress?.emailAddress?.split("@")[0] ??
+        user.firstName ??
+        "pearuser"
+
       const { error } = await supabase.from("profiles").upsert({
         id: user.id,
         email: user.primaryEmailAddress?.emailAddress ?? null,
@@ -44,6 +50,16 @@ export function ProtectedPage({ children }: ProtectedPageProps) {
 
       if (error) {
         setMessage(error.message)
+        return
+      }
+
+      const { error: usernameError } = await supabase.rpc("ensure_profile_username", {
+        profile_id: user.id,
+        requested_username: requestedUsername
+      })
+
+      if (usernameError) {
+        setMessage(usernameError.message)
       }
     }
 

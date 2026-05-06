@@ -17,6 +17,7 @@ export type Database = {
           id: string
           email: string | null
           display_name: string | null
+          username: string
           created_at: string
           updated_at: string
         }
@@ -24,6 +25,7 @@ export type Database = {
           id: string
           email?: string | null
           display_name?: string | null
+          username?: string
           created_at?: string
           updated_at?: string
         }
@@ -31,6 +33,7 @@ export type Database = {
           id?: string
           email?: string | null
           display_name?: string | null
+          username?: string
           created_at?: string
           updated_at?: string
         }
@@ -196,7 +199,8 @@ export type Database = {
         Row: {
           id: string
           user_id: string
-          friend_user_id: string
+          friend_user_id: string | null
+          friend_label: string
           status: "pending" | "active" | "blocked"
           created_at: string
           updated_at: string
@@ -204,7 +208,8 @@ export type Database = {
         Insert: {
           id?: string
           user_id: string
-          friend_user_id: string
+          friend_user_id?: string | null
+          friend_label: string
           status?: "pending" | "active" | "blocked"
           created_at?: string
           updated_at?: string
@@ -212,7 +217,8 @@ export type Database = {
         Update: {
           id?: string
           user_id?: string
-          friend_user_id?: string
+          friend_user_id?: string | null
+          friend_label?: string
           status?: "pending" | "active" | "blocked"
           created_at?: string
           updated_at?: string
@@ -290,7 +296,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      ensure_profile_username: {
+        Args: {
+          profile_id: string
+          requested_username?: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
