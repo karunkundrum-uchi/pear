@@ -194,9 +194,7 @@ function SetupContent({
     )
   }
 
-  async function saveUsername(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
+  async function saveUsername() {
     if (!normalizedUsernamePreview) {
       setProfileMessage("Username must include at least one letter or number.")
       return
@@ -370,7 +368,7 @@ function SetupContent({
                   Pick the handle other people use to find you when they send a friend request.
                 </p>
 
-                <form className="mt-4 space-y-4" onSubmit={saveUsername}>
+                <div className="mt-4 space-y-4">
                   <label className="block">
                     <span className="text-sm font-medium text-slate-700">Username</span>
                     <div className="mt-1 flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-100">
@@ -392,13 +390,14 @@ function SetupContent({
                   <button
                     className="w-full rounded-xl bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={usernameSaving}
-                    type="submit"
+                    onClick={() => void saveUsername()}
+                    type="button"
                   >
                     {usernameSaving ? "Saving username..." : "Update username"}
                   </button>
 
                   {profileMessage ? <p className="text-sm text-slate-600">{profileMessage}</p> : null}
-                </form>
+                </div>
               </section>
             </aside>
           </div>
