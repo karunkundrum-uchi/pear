@@ -7,6 +7,7 @@ import { createClerkSupabaseClient } from "@/lib/supabase"
 
 type BlockWindow = TableRow<"block_windows">
 type BlockedSite = TableRow<"blocked_sites">
+type Profile = TableRow<"profiles">
 type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
@@ -38,9 +39,13 @@ function SetupContent({
 }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [usernameSaving, setUsernameSaving] = useState(false)
   const [message, setMessage] = useState("")
+  const [profileMessage, setProfileMessage] = useState("")
   const [windows, setWindows] = useState<BlockWindow[]>([])
   const [sites, setSites] = useState<BlockedSite[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [usernameDraft, setUsernameDraft] = useState("")
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5])
   const [startTime, setStartTime] = useState("17:00")
   const [endTime, setEndTime] = useState("19:00")
@@ -58,17 +63,18 @@ function SetupContent({
   useEffect(() => {
     async function loadSetup() {
       const supabase = createClerkSupabaseClient(session)
-      const [windowsResult, sitesResult] = await Promise.all([
+      const [windowsResult, sitesResult, profileResult] = await Promise.all([
         supabase
           .from("block_windows")
           .select("*")
           .eq("user_id", userId)
           .order("day_of_week", { ascending: true }),
-        supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true })
+        supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true }),
+        supabase.from("profiles").select("*").eq("id", userId).single()
       ])
 
-      if (windowsResult.error || sitesResult.error) {
-        setMessage(windowsResult.error?.message ?? sitesResult.error?.message ?? "")
+      if (windowsResult.error || sitesResult.error || profileResult.error) {
+        setMessage(windowsResult.error?.message ?? sitesResult.error?.message ?? profileResult.error?.message ?? "")
         setLoading(false)
         return
       }
@@ -78,6 +84,8 @@ function SetupContent({
 
       setWindows(nextWindows)
       setSites(nextSites)
+      setProfile(profileResult.data ?? null)
+      setUsernameDraft(profileResult.data?.username ?? "")
 
       if (nextWindows.length > 0) {
         setSelectedDays(nextWindows.map((window) => window.day_of_week))
@@ -102,6 +110,15 @@ function SetupContent({
       sites: sites.length
     }
   }, [sites.length, windows.length])
+
+  const normalizedUsernamePreview = useMemo(() => {
+    return usernameDraft
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .replace(/_+/g, "_")
+  }, [usernameDraft])
 
   async function saveConfig(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -175,6 +192,36 @@ function SetupContent({
         ...row
       }))
     )
+  }
+
+  async function saveUsername(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!normalizedUsernamePreview) {
+      setProfileMessage("Username must include at least one letter or number.")
+      return
+    }
+
+    setUsernameSaving(true)
+    setProfileMessage("")
+
+    const supabase = createClerkSupabaseClient(session)
+    const { data, error } = await supabase.rpc("claim_profile_username", {
+      profile_id: userId,
+      requested_username: usernameDraft
+    })
+
+    setUsernameSaving(false)
+
+    if (error || !data) {
+      setProfileMessage(error?.message ?? "Unable to update username.")
+      return
+    }
+
+    const nextUsername = data as string
+    setUsernameDraft(nextUsername)
+    setProfile((current) => (current ? { ...current, username: nextUsername } : current))
+    setProfileMessage("Username updated.")
   }
 
   if (loading) {
@@ -273,46 +320,86 @@ function SetupContent({
               </fieldset>
             </div>
 
-            <aside className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700">Start</span>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                  onChange={(event) => setStartTime(event.target.value)}
-                  type="time"
-                  value={startTime}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700">End</span>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                  onChange={(event) => setEndTime(event.target.value)}
-                  type="time"
-                  value={endTime}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700">Timezone</span>
-                <input
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
-                  onChange={(event) => setTimezone(event.target.value)}
-                  value={timezone}
-                />
-              </label>
+            <aside className="space-y-4">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-700">Start</span>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    onChange={(event) => setStartTime(event.target.value)}
+                    type="time"
+                    value={startTime}
+                  />
+                </label>
+                <label className="mt-4 block">
+                  <span className="text-sm font-medium text-slate-700">End</span>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    onChange={(event) => setEndTime(event.target.value)}
+                    type="time"
+                    value={endTime}
+                  />
+                </label>
+                <label className="mt-4 block">
+                  <span className="text-sm font-medium text-slate-700">Timezone</span>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+                    onChange={(event) => setTimezone(event.target.value)}
+                    value={timezone}
+                  />
+                </label>
 
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600">
-                After saving, reopen the extension popup once so the background worker refreshes its cached config.
+                <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600">
+                  After saving, reopen the extension popup once so the background worker refreshes its cached config.
+                </div>
+
+                <button
+                  className="mt-4 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={saving}
+                  type="submit"
+                >
+                  {saving ? "Saving..." : "Update setup"}
+                </button>
+                {message ? <p className="mt-3 text-sm text-slate-600">{message}</p> : null}
               </div>
 
-              <button
-                className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={saving}
-                type="submit"
-              >
-                {saving ? "Saving..." : "Update setup"}
-              </button>
-              {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Profile</p>
+                <h3 className="mt-2 text-lg font-semibold text-slate-950">Username settings</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Pick the handle other people use to find you when they send a friend request.
+                </p>
+
+                <form className="mt-4 space-y-4" onSubmit={saveUsername}>
+                  <label className="block">
+                    <span className="text-sm font-medium text-slate-700">Username</span>
+                    <div className="mt-1 flex items-center rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-teal-600 focus-within:ring-2 focus-within:ring-teal-100">
+                      <span className="text-sm text-slate-500">@</span>
+                      <input
+                        className="w-full border-0 bg-transparent px-1 text-sm outline-none"
+                        onChange={(event) => setUsernameDraft(event.target.value)}
+                        placeholder="yourname"
+                        value={usernameDraft}
+                      />
+                    </div>
+                  </label>
+
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600">
+                    <p>Current: {profile ? `@${profile.username}` : "Pending"}</p>
+                    <p>Preview: {normalizedUsernamePreview ? `@${normalizedUsernamePreview}` : "Enter a username"}</p>
+                  </div>
+
+                  <button
+                    className="w-full rounded-xl bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={usernameSaving}
+                    type="submit"
+                  >
+                    {usernameSaving ? "Saving username..." : "Update username"}
+                  </button>
+
+                  {profileMessage ? <p className="text-sm text-slate-600">{profileMessage}</p> : null}
+                </form>
+              </section>
             </aside>
           </div>
         </form>

@@ -303,6 +303,13 @@ export type Database = {
         }
         Returns: string
       }
+      claim_profile_username: {
+        Args: {
+          profile_id: string
+          requested_username: string
+        }
+        Returns: string
+      }
       find_profile_by_username: {
         Args: {
           requested_username: string
