@@ -75,6 +75,9 @@ function PopupContent() {
           <button className="button-primary" onClick={() => openUrl("/dashboard")} type="button">
             Open dashboard
           </button>
+          <button className="button-secondary" onClick={() => openUrl("/setup")} type="button">
+            Open setup
+          </button>
           <p className="small">
             If you just signed in on the web app, close and reopen this popup once so Pear refreshes the synced
             session.
@@ -95,6 +98,9 @@ function PopupContent() {
           </button>
           <button className="button-secondary" onClick={() => openUrl("/dashboard")} type="button">
             Open dashboard
+          </button>
+          <button className="button-secondary" onClick={() => openUrl("/setup")} type="button">
+            Open setup
           </button>
         </section>
       </Show>
