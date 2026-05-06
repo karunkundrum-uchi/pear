@@ -66,16 +66,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.12),transparent_32rem),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)]">
+    <div className="min-h-screen bg-[linear-gradient(145deg,#fff7f4_0%,#fffdf8_48%,#f6efe7_100%)] text-[#2d201c]">
       <div className="flex min-h-screen w-full flex-col px-8 py-6">
-        <header className="border-b border-white/70 pb-6">
+        <header className="border-b border-[#eadcd7] pb-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-teal-700">Pear</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Attention control center</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Keep the dashboard focused on signal, keep setup separate, and make accountability explicit.
-            </p>
+              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#9a6d62]">Pear</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#2d201c]">Attention control center</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6b544e]">
+                A calmer home for your focus, your routines, and the people you choose to bring into the process.
+              </p>
             </div>
 
             <div className="ml-auto flex flex-col items-end gap-3">
@@ -87,8 +87,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Link
                       className={`rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition ${
                         active
-                          ? "border-teal-700 bg-teal-50 text-teal-950"
-                          : "border-white/80 bg-white/90 text-slate-700 hover:border-slate-200 hover:bg-white"
+                          ? "border-[#b88579] bg-[#f4e4de] text-[#6f4338]"
+                          : "border-[#eadcd7] bg-white/85 text-[#6b544e] hover:border-[#d8c2ba] hover:bg-white"
                       }`}
                       href={item.href}
                       key={item.href}
@@ -100,13 +100,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </nav>
 
               <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3 text-right shadow-sm backdrop-blur">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Account</p>
-                  {accountUsername ? <p className="text-sm font-semibold text-slate-900">@{accountUsername}</p> : null}
-                  <p className="text-xs text-slate-600">{user.primaryEmailAddress?.emailAddress}</p>
+                <div className="rounded-2xl border border-[#eadcd7] bg-white/80 px-4 py-3 text-right shadow-sm backdrop-blur">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Account</p>
+                  {accountUsername ? <p className="text-sm font-semibold text-[#2d201c]">@{accountUsername}</p> : null}
+                  <p className="text-xs text-[#6b544e]">{user.primaryEmailAddress?.emailAddress}</p>
                 </div>
                 <button
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-slate-50"
+                  className="rounded-xl border border-[#d8c2ba] bg-white px-4 py-2.5 text-sm font-medium text-[#5d3d36] shadow-sm transition hover:bg-[#fff8f5]"
                   onClick={handleSignOut}
                   type="button"
                 >

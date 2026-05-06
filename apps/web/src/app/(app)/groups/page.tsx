@@ -563,29 +563,29 @@ function GroupsContent({
 
   return (
     <main className="space-y-6">
-      {message ? <p className="text-sm text-slate-600">{message}</p> : null}
+      {message ? <p className="text-sm text-[#6b544e]">{message}</p> : null}
 
       {!schemaReady ? (
-        <section className="rounded-3xl border border-dashed border-slate-300 bg-white/80 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Groups pending</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">Apply the Supabase migration to enable this page</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+        <section className="rounded-[2rem] border border-dashed border-[#d8c2ba] bg-[#fffaf7] p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Groups pending</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#2d201c]">This space will open once the shared layer is ready</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#6b544e]">
             The web app code is ready, but the database in this environment does not have the new groups tables yet. Once the migration is applied, this page will load group creation, invite codes, direct friends, and accountability preferences.
           </p>
         </section>
       ) : null}
 
       <section className={`grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] ${!schemaReady ? "opacity-50 pointer-events-none" : ""}`}>
-        <div className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Groups</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">Build accountability without putting setup here</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+        <div className="rounded-[2rem] border border-[#eadcd7] bg-[linear-gradient(145deg,#fff7f4_0%,#fffdf8_48%,#f6efe7_100%)] p-6 shadow-[0_24px_70px_rgba(88,53,46,0.08)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Groups</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#2d201c]">Build a support circle without cluttering your daily focus</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6b544e]">
             Use named groups for shared accountability spaces. Use direct friend links for one-to-one support. Default to moderate exposure, then override only when a specific relationship needs more or less visibility.
           </p>
 
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={createGroup}>
-              <h3 className="text-lg font-semibold text-slate-950">Create a group</h3>
+            <form className="rounded-[1.5rem] border border-[#eadcd7] bg-[#fffaf7] p-4" onSubmit={createGroup}>
+              <h3 className="text-lg font-semibold text-[#2d201c]">Create a group</h3>
               <div className="mt-4 space-y-3">
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">Name</span>
@@ -621,8 +621,8 @@ function GroupsContent({
               </button>
             </form>
 
-            <form className="rounded-3xl border border-slate-200 bg-slate-50 p-4" onSubmit={createFriendConnection}>
-              <h3 className="text-lg font-semibold text-slate-950">Add a direct friend</h3>
+            <form className="rounded-[1.5rem] border border-[#eadcd7] bg-[#fffaf7] p-4" onSubmit={createFriendConnection}>
+              <h3 className="text-lg font-semibold text-[#2d201c]">Add a direct friend</h3>
               <div className="mt-4 space-y-3">
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">Friend identifier</span>
@@ -651,9 +651,9 @@ function GroupsContent({
           </div>
         </div>
 
-        <aside className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-950">Default accountability stance</h3>
-          <div className="mt-4 space-y-3 text-sm text-slate-600">
+        <aside className="rounded-[1.5rem] border border-[#eadcd7] bg-[#fffaf7] p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-[#2d201c]">Default accountability stance</h3>
+          <div className="mt-4 space-y-3 text-sm text-[#6b544e]">
             <p>Start with `event only` and a `daily digest`. It keeps accountability real without turning every override into full surveillance.</p>
             <p>Use per-member overrides only for the relationships that genuinely need more detail or less noise.</p>
             <p>Invites generate a share code today. Accepting and syncing the other side is the next layer once the schema lands and the dashboard placeholders are ready to consume group activity.</p>
@@ -662,7 +662,7 @@ function GroupsContent({
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+        <div className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xl font-semibold text-slate-950">Your groups</h3>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{groups.length} total</span>
@@ -723,7 +723,7 @@ function GroupsContent({
         </div>
 
         <div className="space-y-6">
-          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+          <section className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xl font-semibold text-slate-950">Direct friends</h3>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{activeFriends.length} active</span>
@@ -750,7 +750,7 @@ function GroupsContent({
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+          <section className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xl font-semibold text-slate-950">Incoming requests</h3>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{incomingRequests.length} pending</span>
@@ -787,7 +787,7 @@ function GroupsContent({
             </div>
           </section>
 
-          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+          <section className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xl font-semibold text-slate-950">Outgoing requests</h3>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{outgoingRequests.length} pending</span>

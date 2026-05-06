@@ -232,16 +232,16 @@ function SetupContent({
 
   return (
     <main className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_340px]">
-      <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-[2rem] border border-[#eadcd7] bg-[linear-gradient(145deg,#fff7f4_0%,#fffdf8_48%,#f6efe7_100%)] p-6 shadow-[0_24px_70px_rgba(88,53,46,0.08)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Setup</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Configure protection away from the dashboard</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Setup</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[#2d201c]">Shape the rhythm that protects your attention</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6b544e]">
               Keep this page operational. It owns your windows, your watched sites, and the final reminder that the extension needs a refresh after changes.
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <div className="rounded-2xl border border-[#eadcd7] bg-[#fffaf7] px-4 py-3 text-sm text-[#6b544e]">
             <p>{setupSummary.windows} active windows</p>
             <p>{setupSummary.sites} protected sites</p>
           </div>
@@ -319,7 +319,7 @@ function SetupContent({
             </div>
 
             <aside className="space-y-4">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="rounded-[1.5rem] border border-[#eadcd7] bg-[#fffaf7] p-4">
                 <label className="block">
                   <span className="text-sm font-medium text-slate-700">Start</span>
                   <input
@@ -347,24 +347,24 @@ function SetupContent({
                   />
                 </label>
 
-                <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600">
+                <div className="mt-4 rounded-2xl border border-dashed border-[#e5d5cf] bg-white px-4 py-4 text-sm text-[#6b544e]">
                   After saving, reopen the extension popup once so the background worker refreshes its cached config.
                 </div>
 
                 <button
-                  className="mt-4 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-4 w-full rounded-xl bg-[#2d201c] px-4 py-3 text-sm font-medium text-white hover:bg-[#45312c] disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={saving}
                   type="submit"
                 >
                   {saving ? "Saving..." : "Update setup"}
                 </button>
-                {message ? <p className="mt-3 text-sm text-slate-600">{message}</p> : null}
+                {message ? <p className="mt-3 text-sm text-[#6b544e]">{message}</p> : null}
               </div>
 
-              <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Profile</p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-950">Username settings</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
+              <section className="rounded-[1.5rem] border border-[#eadcd7] bg-[#fffaf7] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Profile</p>
+                <h3 className="mt-2 text-lg font-semibold text-[#2d201c]">Name people can find</h3>
+                <p className="mt-2 text-sm leading-6 text-[#6b544e]">
                   Pick the handle other people use to find you when they send a friend request.
                 </p>
 
@@ -382,13 +382,13 @@ function SetupContent({
                     </div>
                   </label>
 
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-600">
+                  <div className="rounded-2xl border border-dashed border-[#e5d5cf] bg-white px-4 py-4 text-sm text-[#6b544e]">
                     <p>Current: {profile ? `@${profile.username}` : "Pending"}</p>
                     <p>Preview: {normalizedUsernamePreview ? `@${normalizedUsernamePreview}` : "Enter a username"}</p>
                   </div>
 
                   <button
-                    className="w-full rounded-xl bg-white px-4 py-3 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-xl bg-white px-4 py-3 text-sm font-medium text-[#5d3d36] shadow-sm ring-1 ring-[#d8c2ba] hover:bg-[#fff8f5] disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={usernameSaving}
                     onClick={() => void saveUsername()}
                     type="button"
@@ -396,7 +396,7 @@ function SetupContent({
                     {usernameSaving ? "Saving username..." : "Update username"}
                   </button>
 
-                  {profileMessage ? <p className="text-sm text-slate-600">{profileMessage}</p> : null}
+                  {profileMessage ? <p className="text-sm text-[#6b544e]">{profileMessage}</p> : null}
                 </div>
               </section>
             </aside>

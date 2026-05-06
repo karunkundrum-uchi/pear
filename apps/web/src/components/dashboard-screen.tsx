@@ -15,6 +15,25 @@ type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
 
+type DashboardModel = {
+  activeNow: boolean
+  handle: string
+  protectedToday: boolean
+  totalOverrides: number
+  weeklyOverrides: number
+  reasonCount: number
+  waitCount: number
+  sitesCount: number
+  windowsCount: number
+  scheduleSummary: string
+  sitesSummary: string
+  topSites: Array<[string, number]>
+  recentReason: string
+  accountabilityText: string
+  currentWindowLabel: string
+  mostRecentEventTime: string
+}
+
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 function isMissingGroupSchemaError(message?: string) {
@@ -50,11 +69,7 @@ function DashboardContent({
       const supabase = createClerkSupabaseClient(session)
 
       const [windowsResult, sitesResult, eventsResult, membershipsResult, groupsResult, profileResult] = await Promise.all([
-        supabase
-          .from("block_windows")
-          .select("*")
-          .eq("user_id", userId)
-          .order("day_of_week", { ascending: true }),
+        supabase.from("block_windows").select("*").eq("user_id", userId).order("day_of_week", { ascending: true }),
         supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true }),
         supabase.from("override_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
         supabase.from("group_memberships").select("*").eq("user_id", userId).eq("status", "active"),
@@ -62,20 +77,21 @@ function DashboardContent({
         supabase.from("profiles").select("*").eq("id", userId).single()
       ])
 
-      const groupSchemaMissing = isMissingGroupSchemaError(membershipsResult.error?.message) || isMissingGroupSchemaError(groupsResult.error?.message)
+      const groupSchemaMissing =
+        isMissingGroupSchemaError(membershipsResult.error?.message) || isMissingGroupSchemaError(groupsResult.error?.message)
 
       if (
         windowsResult.error ||
         sitesResult.error ||
         eventsResult.error ||
-        profileResult?.error ||
+        profileResult.error ||
         (!groupSchemaMissing && (membershipsResult.error || groupsResult.error))
       ) {
         setMessage(
           windowsResult.error?.message ??
             sitesResult.error?.message ??
             eventsResult.error?.message ??
-            profileResult?.error?.message ??
+            profileResult.error?.message ??
             membershipsResult.error?.message ??
             groupsResult.error?.message ??
             ""
@@ -89,73 +105,58 @@ function DashboardContent({
       setEvents(eventsResult.data ?? [])
       setMemberships(groupSchemaMissing ? [] : (membershipsResult.data ?? []))
       setGroups(groupSchemaMissing ? [] : (groupsResult.data ?? []))
-      setProfile(profileResult?.data ?? null)
-      setMessage(groupSchemaMissing ? "Groups are not available until the new Supabase migration is applied." : "")
+      setProfile(profileResult.data ?? null)
+      setMessage(groupSchemaMissing ? "Groups are not available until the new social layer is ready." : "")
       setLoading(false)
     }
 
     void loadDashboard()
   }, [session, userId])
 
-  const recentReason = useMemo(
-    () => events.find((event) => event.reason)?.reason ?? "No reasons logged yet.",
-    [events]
-  )
-  const activeNow = useMemo(() => windows.some((window) => isBlockWindowActive(window)), [windows])
-  const totalOverrides = events.length
-  const waitCount = useMemo(() => events.filter((event) => event.method === "wait").length, [events])
-  const reasonCount = totalOverrides - waitCount
-  const weeklyOverrides = useMemo(() => {
+  const model = useMemo<DashboardModel>(() => {
+    const activeNow = windows.some((window) => isBlockWindowActive(window))
+    const totalOverrides = events.length
+    const waitCount = events.filter((event) => event.method === "wait").length
+    const reasonCount = totalOverrides - waitCount
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-    return events.filter((event) => new Date(event.created_at).getTime() >= weekAgo).length
-  }, [events])
-  const topSites = useMemo(() => {
-    const counts = new Map<string, number>()
-
-    for (const event of events) {
-      counts.set(event.hostname, (counts.get(event.hostname) ?? 0) + 1)
-    }
-
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 4)
-  }, [events])
-  const scheduleSummary = useMemo(() => {
-    if (windows.length === 0) {
-      return "No active block window yet."
-    }
-
+    const weeklyOverrides = events.filter((event) => new Date(event.created_at).getTime() >= weekAgo).length
+    const topSites = buildTopSites(events)
     const uniqueDays = Array.from(new Set(windows.map((window) => window.day_of_week))).sort((a, b) => a - b)
-    const labels = uniqueDays.map((day) => DAY_LABELS[day]).join(", ")
-    return `${labels} • ${windows[0]?.start_time.slice(0, 5)} to ${windows[0]?.end_time.slice(0, 5)}`
-  }, [windows])
-  const sitesSummary = useMemo(() => {
-    if (sites.length === 0) {
-      return "No blocked sites yet."
-    }
-
-    return sites.slice(0, 4).map((site) => site.hostname).join(", ")
-  }, [sites])
-  const todayPulse = useMemo(() => {
+    const scheduleSummary =
+      windows.length === 0
+        ? "No protection window set yet."
+        : `${uniqueDays.map((day) => DAY_LABELS[day]).join(", ")} • ${windows[0]?.start_time.slice(0, 5)}-${windows[0]?.end_time.slice(0, 5)}`
+    const sitesSummary =
+      sites.length === 0 ? "No sites under protection yet." : sites.slice(0, 4).map((site) => site.hostname).join(", ")
     const timezone = windows[0]?.timezone ?? "America/Chicago"
-    const today = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      weekday: "short"
-    }).format(new Date())
-
-    const activeDays = new Set(windows.map((window) => DAY_LABELS[window.day_of_week]))
-    return activeDays.has(today) ? "Protected today" : "No block window today"
-  }, [windows])
-  const accountabilitySummary = useMemo(() => {
-    const groupCount = groups.length
+    const today = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(new Date())
+    const protectedToday = new Set(windows.map((window) => DAY_LABELS[window.day_of_week])).has(today)
+    const recentReason = events.find((event) => event.reason)?.reason ?? "No written reason logged yet."
     const membershipOnlyCount = memberships.filter((membership) => membership.role === "member").length
+    const accountabilityText =
+      groups.length + membershipOnlyCount > 0
+        ? `${groups.length} circles and ${membershipOnlyCount} outside check-in relationships are ready for future shared progress.`
+        : "No shared accountability layer yet. This space is being held for that next step."
 
     return {
-      groupCount,
-      membershipOnlyCount,
-      hasSocialLayer: groupCount + membershipOnlyCount > 0
+      activeNow,
+      handle: profile?.username ? `@${profile.username}` : "@pending",
+      protectedToday,
+      totalOverrides,
+      weeklyOverrides,
+      reasonCount,
+      waitCount,
+      sitesCount: sites.length,
+      windowsCount: windows.length,
+      scheduleSummary,
+      sitesSummary,
+      topSites,
+      recentReason,
+      accountabilityText,
+      currentWindowLabel: activeNow ? "Protection is live right now." : protectedToday ? "Protected later today." : "No active protection today.",
+      mostRecentEventTime: events[0] ? new Date(events[0].created_at).toLocaleString() : "No activity logged yet."
     }
-  }, [groups, memberships])
+  }, [events, groups.length, memberships, profile?.username, sites, windows])
 
   if (loading) {
     return (
@@ -166,161 +167,146 @@ function DashboardContent({
   }
 
   return (
-    <main>
-      {message ? <p className="mb-4 text-sm text-slate-600">{message}</p> : null}
-
-      <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            description="Share this username on the Groups page so people can find you."
-            label="Username"
-            value={profile ? `@${profile.username}` : "Pending"}
-          />
-          <StatCard
-            description={todayPulse}
-            label="Status"
-            tone={activeNow ? "teal" : "slate"}
-            value={activeNow ? "Blocking now" : "Standing by"}
-          />
-          <StatCard description="Overrides recorded this week." label="Last 7 days" value={String(weeklyOverrides)} />
-          <StatCard description="Reason-based continues vs one-minute waits." label="Decision mix" value={`${reasonCount}/${waitCount}`} />
-          <StatCard
-            description={sites.length > 0 ? sitesSummary : "Add a few to start."}
-            label="Protected sites"
-            value={String(sites.length)}
-          />
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(420px,1fr)]">
-          <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950">Override activity</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  What has been demanding attention most often during high-risk windows.
-                </p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 px-3 py-2 text-right">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total logged</p>
-                <p className="text-lg font-semibold text-slate-950">{totalOverrides}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,340px)]">
-              <div className="space-y-3">
-                {events.length > 0 ? (
-                  events.map((event) => (
-                    <article className="rounded-2xl border border-slate-200 p-3" key={event.id}>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-slate-900">{event.hostname}</p>
-                        <p className="text-xs text-slate-500">{new Date(event.created_at).toLocaleString()}</p>
-                      </div>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {event.method === "reason" ? event.reason || "No reason entered." : "Waited 1 minute."}
-                      </p>
-                    </article>
-                  ))
-                ) : (
-                  <EmptyPanel text="No overrides logged yet." />
-                )}
-              </div>
-
-              <aside className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">Most common trigger sites</p>
-                  <div className="mt-3 space-y-3">
-                    {topSites.length > 0 ? (
-                      topSites.map(([hostname, count]) => (
-                        <div className="flex items-center justify-between gap-3" key={hostname}>
-                          <span className="text-sm text-slate-700">{hostname}</span>
-                          <span className="rounded-full bg-white px-2 py-1 text-xs font-medium text-slate-700">
-                            {count}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-slate-600">No trigger data yet.</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">Latest reason</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{recentReason}</p>
-                </div>
-              </aside>
-            </div>
-          </section>
-
-          <section className="space-y-6">
-            <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-              <h2 className="text-xl font-semibold text-slate-950">Current protection</h2>
-              <dl className="mt-4 space-y-4 text-sm">
-                <div>
-                  <dt className="font-medium text-slate-700">Schedule</dt>
-                  <dd className="mt-1 text-slate-600">{scheduleSummary}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-slate-700">Sites watched</dt>
-                  <dd className="mt-1 text-slate-600">{sitesSummary}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-slate-700">Timezone</dt>
-                  <dd className="mt-1 text-slate-600">{windows[0]?.timezone ?? "America/Chicago"}</dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">Reserved for v2</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-950">Group accountability</h2>
-                </div>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                  Placeholder
-                </span>
-              </div>
-              <div className="mt-4 space-y-3 text-sm text-slate-600">
-                <p>
-                  {accountabilitySummary.hasSocialLayer
-                    ? `You already have ${accountabilitySummary.groupCount} owned groups and ${accountabilitySummary.membershipOnlyCount} outside accountability memberships.`
-                    : "No accountability relationships yet. Build them on the Groups page before group stats go live."}
-                </p>
-                <p>Future cards here should summarize group override rates, check-ins, and how much support is actually reaching you.</p>
-              </div>
-            </section>
-          </section>
-        </div>
-      </div>
+    <main className="space-y-6">
+      {message ? <p className="text-sm text-[#6b544e]">{message}</p> : null}
+      <FocusDashboard model={model} />
     </main>
   )
 }
 
-function StatCard({
-  label,
-  value,
-  description,
-  tone = "slate"
-}: {
-  label: string
-  value: string
-  description: string
-  tone?: "slate" | "teal"
-}) {
+function FocusDashboard({ model }: { model: DashboardModel }) {
+  const focusScore = Math.max(0, 100 - model.weeklyOverrides * 9 - model.waitCount * 3)
+
   return (
-    <article className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-3 text-2xl font-semibold ${tone === "teal" ? "text-teal-700" : "text-slate-950"}`}>{value}</p>
-      <p className="mt-2 text-sm text-slate-600">{description}</p>
-    </article>
+    <section className="rounded-[2rem] border border-[#e7d8d5] bg-[linear-gradient(145deg,#fff7f4_0%,#fffdf8_48%,#f6efe7_100%)] p-6 shadow-[0_24px_70px_rgba(88,53,46,0.08)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+        <div className="space-y-6">
+          <div className="rounded-[1.75rem] bg-[#fffdf9] p-6 ring-1 ring-[#ecdcd7]">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#9a6d62]">Daily focus</p>
+                <h3 className="mt-2 text-3xl font-semibold leading-tight text-[#2d201c]">
+                  A steadier read on how well your attention held today.
+                </h3>
+              </div>
+              <span className="rounded-full bg-[#f4e4de] px-3 py-1 text-sm font-medium text-[#7b4f45]">{model.handle}</span>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-[200px_minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="rounded-[1.5rem] bg-[#2d201c] p-5 text-white">
+                <p className="text-xs uppercase tracking-[0.18em] text-[#d6bbb2]">Focus score</p>
+                <p className="mt-3 text-5xl font-semibold">{focusScore}</p>
+                <p className="mt-3 text-sm leading-6 text-[#ead7d1]">{model.currentWindowLabel}</p>
+              </div>
+              <LedgerCard label="Pressure this week" value={`${model.weeklyOverrides}`} note="How often the blocker had to step in." />
+              <LedgerCard label="Deliberate choices" value={`${model.reasonCount}`} note="Times you made an active decision instead of waiting it out." />
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel title="Behavior note" subtitle="A dashboard should explain, not just count.">
+              <p className="text-sm leading-7 text-slate-600">{model.recentReason}</p>
+            </Panel>
+            <Panel title="Pattern watch" subtitle="Where attention keeps drifting when things get shaky.">
+              {model.topSites.length > 0 ? (
+                <div className="space-y-3">
+                  {model.topSites.map(([hostname, count]) => (
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2 text-sm last:border-b-0 last:pb-0" key={hostname}>
+                      <span className="text-slate-800">{hostname}</span>
+                      <span className="rounded-full bg-[#f5ece8] px-2 py-1 text-[#7b4f45]">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <MutedBox text="No visible drift pattern yet." />
+              )}
+            </Panel>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <Panel title="Daily posture" subtitle="A quieter summary of your current setup and rhythm.">
+            <Definition label="Current state" value={model.activeNow ? "Protected now" : "Standing by"} />
+            <Definition label="Schedule" value={model.scheduleSummary} />
+            <Definition label="Protected sites" value={`${model.sitesCount} · ${model.sitesSummary}`} />
+            <Definition label="Latest activity" value={model.mostRecentEventTime} />
+          </Panel>
+
+          <Panel title="Shared progress" subtitle="Space reserved for future group momentum and accountability.">
+            <p className="text-sm leading-7 text-slate-600">{model.accountabilityText}</p>
+          </Panel>
+        </div>
+      </div>
+    </section>
   )
 }
 
-function EmptyPanel({ text }: { text: string }) {
+function buildTopSites(events: OverrideEvent[]) {
+  const counts = new Map<string, number>()
+  for (const event of events) {
+    counts.set(event.hostname, (counts.get(event.hostname) ?? 0) + 1)
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+}
+
+function Panel({
+  title,
+  subtitle,
+  children
+}: {
+  title: string
+  subtitle: string
+  children: React.ReactNode
+}) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
-      <p className="text-sm text-slate-600">{text}</p>
+    <section className="rounded-[1.5rem] bg-white/85 p-5 shadow-sm ring-1 ring-[#eadcd7]">
+      <h4 className="text-lg font-semibold text-[#2d201c]">{title}</h4>
+      <p className="mt-1 text-sm leading-6 text-[#7b6a63]">{subtitle}</p>
+      <div className="mt-4">{children}</div>
+    </section>
+  )
+}
+
+function LedgerCard({
+  label,
+  value,
+  note
+}: {
+  label: string
+  value: string
+  note: string
+}) {
+  return (
+    <div className="rounded-[1.5rem] bg-[#f7eeea] p-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">{label}</p>
+      <p className="mt-3 text-4xl font-semibold text-[#2d201c]">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-[#6b544e]">{note}</p>
+    </div>
+  )
+}
+
+function Definition({
+  label,
+  value
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div className="border-b border-[#efe4df] pb-3 last:border-b-0 last:pb-0">
+      <dt className="text-sm font-medium text-[#6b544e]">{label}</dt>
+      <dd className="mt-1 text-sm leading-6 text-[#473632]">{value}</dd>
+    </div>
+  )
+}
+
+function MutedBox({ text }: { text: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-[#e5d5cf] bg-[#fffaf7] p-4">
+      <p className="text-sm leading-6 text-[#7b6a63]">{text}</p>
     </div>
   )
 }
