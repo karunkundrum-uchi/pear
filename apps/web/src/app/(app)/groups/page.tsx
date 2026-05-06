@@ -15,6 +15,10 @@ type ProtectedSession = {
   getToken: () => Promise<string | null>
 }
 
+type FriendView = FriendConnection & {
+  counterpartyUsername: string
+}
+
 const EXPOSURE_OPTIONS: Array<{
   value: TableInsert<"accountability_preferences">["exposure_level"]
   label: string
@@ -74,6 +78,7 @@ function GroupsContent({
   const [invites, setInvites] = useState<GroupInvite[]>([])
   const [friends, setFriends] = useState<FriendConnection[]>([])
   const [preferences, setPreferences] = useState<AccountabilityPreference[]>([])
+  const [profilesById, setProfilesById] = useState<Record<string, Profile>>({})
   const [groupName, setGroupName] = useState("")
   const [groupDescription, setGroupDescription] = useState("")
   const [friendUsername, setFriendUsername] = useState("")
@@ -81,53 +86,73 @@ function GroupsContent({
   const [inviteCadence, setInviteCadence] = useState<TableInsert<"accountability_preferences">["notification_cadence"]>("daily_digest")
   const [schemaReady, setSchemaReady] = useState(true)
 
+  async function loadGroupsState() {
+    const supabase = createClerkSupabaseClient(session)
+    const [groupsResult, membershipsResult, invitesResult, friendsResult, preferencesResult] = await Promise.all([
+      supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("group_memberships").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("group_invites").select("*").eq("inviter_user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("friend_connections").select("*").or(`user_id.eq.${userId},friend_user_id.eq.${userId}`).order("created_at", { ascending: false }),
+      supabase.from("accountability_preferences").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false })
+    ])
+
+    const nextFriends = friendsResult.data ?? []
+
+    const groupSchemaMissing =
+      isMissingGroupSchemaError(groupsResult.error?.message) ||
+      isMissingGroupSchemaError(membershipsResult.error?.message) ||
+      isMissingGroupSchemaError(invitesResult.error?.message) ||
+      isMissingGroupSchemaError(friendsResult.error?.message) ||
+      isMissingGroupSchemaError(preferencesResult.error?.message)
+
+    if (!groupSchemaMissing && (groupsResult.error || membershipsResult.error || invitesResult.error || friendsResult.error || preferencesResult.error)) {
+      setMessage(
+        groupsResult.error?.message ??
+          membershipsResult.error?.message ??
+          invitesResult.error?.message ??
+          friendsResult.error?.message ??
+          preferencesResult.error?.message ??
+          ""
+      )
+      setLoading(false)
+      return
+    }
+
+    if (groupSchemaMissing) {
+      setSchemaReady(false)
+      setMessage("Groups will appear after the new Supabase migration is applied.")
+      setLoading(false)
+      return
+    }
+
+    setGroups(groupsResult.data ?? [])
+    setMemberships(membershipsResult.data ?? [])
+    setInvites(invitesResult.data ?? [])
+    setFriends(nextFriends)
+    setPreferences(preferencesResult.data ?? [])
+    const relatedProfileIds: string[] = Array.from(
+      new Set(
+        nextFriends
+          .flatMap((friend) => [friend.user_id, friend.friend_user_id])
+          .filter((value): value is string => Boolean(value))
+      )
+    )
+
+    if (relatedProfileIds.length > 0) {
+      const { data: relatedProfiles } = await supabase.from("profiles").select("*").in("id", relatedProfileIds)
+      setProfilesById(
+        Object.fromEntries((relatedProfiles ?? []).map((profile) => [profile.id, profile]))
+      )
+    } else {
+      setProfilesById({})
+    }
+    setSchemaReady(true)
+    setLoading(false)
+  }
+
   useEffect(() => {
     async function loadGroups() {
-      const supabase = createClerkSupabaseClient(session)
-      const [groupsResult, membershipsResult, invitesResult, friendsResult, preferencesResult] = await Promise.all([
-        supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("group_memberships").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("group_invites").select("*").eq("inviter_user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("friend_connections").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("accountability_preferences").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false })
-      ])
-
-      const groupSchemaMissing =
-        isMissingGroupSchemaError(groupsResult.error?.message) ||
-        isMissingGroupSchemaError(membershipsResult.error?.message) ||
-        isMissingGroupSchemaError(invitesResult.error?.message) ||
-        isMissingGroupSchemaError(friendsResult.error?.message) ||
-        isMissingGroupSchemaError(preferencesResult.error?.message)
-
-      if (!groupSchemaMissing && (groupsResult.error || membershipsResult.error || invitesResult.error || friendsResult.error || preferencesResult.error)) {
-        setMessage(
-          groupsResult.error?.message ??
-            membershipsResult.error?.message ??
-            invitesResult.error?.message ??
-            friendsResult.error?.message ??
-            preferencesResult.error?.message ??
-            ""
-        )
-        setLoading(false)
-        return
-      }
-
-      if (groupSchemaMissing) {
-        setSchemaReady(false)
-        setMessage("Groups will appear after the new Supabase migration is applied.")
-        setLoading(false)
-        return
-      }
-
-      const nextGroups = groupsResult.data ?? []
-
-      setGroups(nextGroups)
-      setMemberships(membershipsResult.data ?? [])
-      setInvites(invitesResult.data ?? [])
-      setFriends(friendsResult.data ?? [])
-      setPreferences(preferencesResult.data ?? [])
-      setSchemaReady(true)
-      setLoading(false)
+      await loadGroupsState()
     }
 
     void loadGroups()
@@ -148,6 +173,33 @@ function GroupsContent({
         .map((preference) => [preference.friend_connection_id as string, preference])
     )
   }, [preferences])
+
+  const activeFriends = useMemo(() => {
+    return friends
+      .filter((friend) => friend.user_id === userId && friend.status === "active")
+      .map((friend) => ({
+        ...friend,
+        counterpartyUsername: profilesById[friend.friend_user_id ?? ""]?.username ?? friend.friend_label
+      }))
+  }, [friends, profilesById, userId])
+
+  const outgoingRequests = useMemo(() => {
+    return friends
+      .filter((friend) => friend.user_id === userId && friend.status === "pending")
+      .map((friend) => ({
+        ...friend,
+        counterpartyUsername: profilesById[friend.friend_user_id ?? ""]?.username ?? friend.friend_label
+      }))
+  }, [friends, profilesById, userId])
+
+  const incomingRequests = useMemo(() => {
+    return friends
+      .filter((friend) => friend.friend_user_id === userId && friend.status === "pending")
+      .map((friend) => ({
+        ...friend,
+        counterpartyUsername: profilesById[friend.user_id]?.username ?? friend.friend_label
+      }))
+  }, [friends, profilesById, userId])
 
   async function createGroup(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -251,6 +303,25 @@ function GroupsContent({
       return
     }
 
+    const duplicate = friends.find(
+      (friend) =>
+        ((friend.user_id === userId && friend.friend_user_id === targetProfile.id) ||
+          (friend.user_id === targetProfile.id && friend.friend_user_id === userId)) &&
+        friend.status !== "blocked"
+    )
+
+    if (duplicate) {
+      setSaving(false)
+      setMessage(
+        duplicate.status === "active"
+          ? "You are already connected with this user."
+          : duplicate.user_id === userId
+            ? "Friend request already sent."
+            : "This user has already sent you a request. Approve it below."
+      )
+      return
+    }
+
     const { data: connection, error: connectionError } = await supabase
       .from("friend_connections")
       .insert({
@@ -290,7 +361,132 @@ function GroupsContent({
     setFriends((current) => [connection, ...current])
     setPreferences((current) => [preference, ...current])
     setFriendUsername("")
-    setMessage("Friend accountability link created.")
+    setMessage("Friend request sent.")
+  }
+
+  async function approveFriendRequest(friend: FriendView) {
+    setSaving(true)
+    setMessage("")
+
+    const supabase = createClerkSupabaseClient(session)
+    const { data: updatedRequest, error: updateError } = await supabase
+      .from("friend_connections")
+      .update({ status: "active" })
+      .eq("id", friend.id)
+      .select("*")
+      .single()
+
+    if (updateError || !updatedRequest) {
+      setSaving(false)
+      setMessage(updateError?.message ?? "Unable to approve friend request.")
+      return
+    }
+
+    const { data: reciprocalExisting } = await supabase
+      .from("friend_connections")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("friend_user_id", friend.user_id)
+      .maybeSingle()
+
+    let reciprocalConnection = reciprocalExisting
+
+    if (reciprocalExisting) {
+      const { data: reciprocalUpdated, error: reciprocalUpdateError } = await supabase
+        .from("friend_connections")
+        .update({
+          friend_label: friend.counterpartyUsername,
+          status: "active"
+        })
+        .eq("id", reciprocalExisting.id)
+        .select("*")
+        .single()
+
+      if (reciprocalUpdateError || !reciprocalUpdated) {
+        setSaving(false)
+        setMessage(reciprocalUpdateError?.message ?? "Approved request, but could not finish the reciprocal link.")
+        return
+      }
+
+      reciprocalConnection = reciprocalUpdated
+    } else {
+      const { data: reciprocalInserted, error: reciprocalInsertError } = await supabase
+        .from("friend_connections")
+        .insert({
+          user_id: userId,
+          friend_user_id: friend.user_id,
+          friend_label: friend.counterpartyUsername,
+          status: "active"
+        })
+        .select("*")
+        .single()
+
+      if (reciprocalInsertError || !reciprocalInserted) {
+        setSaving(false)
+        setMessage(reciprocalInsertError?.message ?? "Approved request, but could not create your side of the connection.")
+        return
+      }
+
+      reciprocalConnection = reciprocalInserted
+    }
+
+    const { data: existingPreference } = await supabase
+      .from("accountability_preferences")
+      .select("*")
+      .eq("owner_user_id", userId)
+      .eq("friend_connection_id", reciprocalConnection.id)
+      .eq("scope_type", "friend_default")
+      .maybeSingle()
+
+    let nextPreference = existingPreference
+
+    if (!existingPreference) {
+      const { data: insertedPreference, error: preferenceError } = await supabase
+        .from("accountability_preferences")
+        .insert({
+          owner_user_id: userId,
+          friend_connection_id: reciprocalConnection.id,
+          scope_type: "friend_default",
+          exposure_level: "event_only",
+          notification_cadence: "daily_digest"
+        })
+        .select("*")
+        .single()
+
+      if (preferenceError || !insertedPreference) {
+        setSaving(false)
+        setMessage(preferenceError?.message ?? "Approved request, but could not save your default accountability preference.")
+        return
+      }
+
+      nextPreference = insertedPreference
+    }
+
+    setSaving(false)
+    setFriends((current) => {
+      const filtered = current.filter((entry) => entry.id !== updatedRequest.id && entry.id !== reciprocalConnection.id)
+      return [reciprocalConnection, updatedRequest, ...filtered]
+    })
+    if (nextPreference) {
+      setPreferences((current) => [nextPreference, ...current.filter((entry) => entry.id !== nextPreference.id)])
+    }
+    setMessage(`Friend request from @${friend.counterpartyUsername} approved.`)
+  }
+
+  async function declineFriendRequest(friend: FriendView) {
+    setSaving(true)
+    setMessage("")
+    const supabase = createClerkSupabaseClient(session)
+    const { error } = await supabase.from("friend_connections").delete().eq("id", friend.id)
+    setSaving(false)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setFriends((current) => current.filter((entry) => entry.id !== friend.id))
+    setMessage(`Friend request from @${friend.counterpartyUsername} declined.`)
   }
 
   async function createInvite(groupId: string) {
@@ -528,17 +724,17 @@ function GroupsContent({
           <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xl font-semibold text-slate-950">Direct friends</h3>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{friends.length} total</span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{activeFriends.length} active</span>
             </div>
             <div className="mt-4 space-y-4">
-              {friends.length > 0 ? (
-                friends.map((friend) => {
+              {activeFriends.length > 0 ? (
+                activeFriends.map((friend) => {
                   const preference = friendPreferenceMap.get(friend.id)
                   return (
                     <article className="rounded-2xl border border-slate-200 p-4" key={friend.id}>
-                      <p className="text-sm font-semibold text-slate-950">{friend.friend_label}</p>
+                      <p className="text-sm font-semibold text-slate-950">@{friend.counterpartyUsername}</p>
                       <div className="mt-2 grid gap-2 text-sm text-slate-600">
-                        <p>Username: @{friend.friend_label}</p>
+                        <p>Username: @{friend.counterpartyUsername}</p>
                         <p>Status: {friend.status}</p>
                         <p>Exposure: {preference?.exposure_level ?? "event_only"}</p>
                         <p>Cadence: {preference?.notification_cadence ?? "daily_digest"}</p>
@@ -548,6 +744,62 @@ function GroupsContent({
                 })
               ) : (
                 <EmptyPanel text="No direct accountability links yet." />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold text-slate-950">Incoming requests</h3>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{incomingRequests.length} pending</span>
+            </div>
+            <div className="mt-4 space-y-4">
+              {incomingRequests.length > 0 ? (
+                incomingRequests.map((friend) => (
+                  <article className="rounded-2xl border border-slate-200 p-4" key={friend.id}>
+                    <p className="text-sm font-semibold text-slate-950">@{friend.counterpartyUsername}</p>
+                    <p className="mt-2 text-sm text-slate-600">This person wants to become an accountability contact.</p>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => approveFriendRequest(friend)}
+                        type="button"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                        disabled={saving}
+                        onClick={() => declineFriendRequest(friend)}
+                        type="button"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <EmptyPanel text="No incoming friend requests." />
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold text-slate-950">Outgoing requests</h3>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{outgoingRequests.length} pending</span>
+            </div>
+            <div className="mt-4 space-y-4">
+              {outgoingRequests.length > 0 ? (
+                outgoingRequests.map((friend) => (
+                  <article className="rounded-2xl border border-slate-200 p-4" key={friend.id}>
+                    <p className="text-sm font-semibold text-slate-950">@{friend.counterpartyUsername}</p>
+                    <p className="mt-2 text-sm text-slate-600">Request sent. This link becomes active after they approve it.</p>
+                  </article>
+                ))
+              ) : (
+                <EmptyPanel text="No outgoing friend requests." />
               )}
             </div>
           </section>
