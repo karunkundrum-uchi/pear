@@ -10,6 +10,7 @@ type BlockedSite = TableRow<"blocked_sites">
 type Group = TableRow<"groups">
 type GroupMembership = TableRow<"group_memberships">
 type OverrideEvent = TableRow<"override_events">
+type Notification = TableRow<"notifications">
 type Profile = TableRow<"profiles">
 type ProtectedSession = {
   getToken: () => Promise<string | null>
@@ -28,16 +29,38 @@ type DashboardModel = {
   scheduleSummary: string
   sitesSummary: string
   topSites: Array<[string, number]>
-  recentReason: string
-  accountabilityText: string
   currentWindowLabel: string
   mostRecentEventTime: string
+  uniqueDayLabels: string[]
+  windowTimeRange: string
+  siteHostnames: string[]
 }
+
+type SupabaseClient = ReturnType<typeof createClerkSupabaseClient>
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 function isMissingGroupSchemaError(message?: string) {
   return Boolean(message && message.includes("Could not find the table 'public.group"))
+}
+
+// "17:00:00" or "17:00" → "5:00 PM"
+function formatTime12h(timeStr: string): string {
+  const [h, m] = timeStr.split(":").map(Number)
+  const period = h >= 12 ? "PM" : "AM"
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`
+}
+
+// ISO timestamp → "May 7 · 3:45 PM"
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  })
 }
 
 export function DashboardScreen() {
@@ -63,19 +86,22 @@ function DashboardContent({
   const [memberships, setMemberships] = useState<GroupMembership[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [friendUsernames, setFriendUsernames] = useState<Map<string, string>>(new Map())
+  const [supabase] = useState(() => createClerkSupabaseClient(session))
 
   useEffect(() => {
     async function loadDashboard() {
-      const supabase = createClerkSupabaseClient(session)
-
-      const [windowsResult, sitesResult, eventsResult, membershipsResult, groupsResult, profileResult] = await Promise.all([
-        supabase.from("block_windows").select("*").eq("user_id", userId).order("day_of_week", { ascending: true }),
-        supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true }),
-        supabase.from("override_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
-        supabase.from("group_memberships").select("*").eq("user_id", userId).eq("status", "active"),
-        supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
-        supabase.from("profiles").select("*").eq("id", userId).single()
-      ])
+      const [windowsResult, sitesResult, eventsResult, membershipsResult, groupsResult, profileResult, notifsResult] =
+        await Promise.all([
+          supabase.from("block_windows").select("*").eq("user_id", userId).order("day_of_week", { ascending: true }),
+          supabase.from("blocked_sites").select("*").eq("user_id", userId).order("label", { ascending: true }),
+          supabase.from("override_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
+          supabase.from("group_memberships").select("*").eq("user_id", userId).eq("status", "active"),
+          supabase.from("groups").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
+          supabase.from("profiles").select("*").eq("id", userId).single(),
+          supabase.from("notifications").select("*").eq("recipient_user_id", userId).order("created_at", { ascending: false }).limit(10)
+        ])
 
       const groupSchemaMissing =
         isMissingGroupSchemaError(membershipsResult.error?.message) || isMissingGroupSchemaError(groupsResult.error?.message)
@@ -107,11 +133,25 @@ function DashboardContent({
       setGroups(groupSchemaMissing ? [] : (groupsResult.data ?? []))
       setProfile(profileResult.data ?? null)
       setMessage(groupSchemaMissing ? "Groups are not available until the new social layer is ready." : "")
+
+      const notifs = notifsResult.data ?? []
+      setNotifications(notifs)
+
+      const senderIds = [...new Set(notifs.map((n) => n.sender_user_id))]
+      if (senderIds.length > 0) {
+        const { data: profiles } = await supabase.rpc("get_public_profiles", { profile_ids: senderIds })
+        const map = new Map<string, string>()
+        for (const p of (profiles as Array<{ id: string; username: string }> | null) ?? []) {
+          map.set(p.id, p.username)
+        }
+        setFriendUsernames(map)
+      }
+
       setLoading(false)
     }
 
     void loadDashboard()
-  }, [session, userId])
+  }, [session, userId, supabase])
 
   const model = useMemo<DashboardModel>(() => {
     const activeNow = windows.some((window) => isBlockWindowActive(window))
@@ -125,18 +165,18 @@ function DashboardContent({
     const scheduleSummary =
       windows.length === 0
         ? "No protection window set yet."
-        : `${uniqueDays.map((day) => DAY_LABELS[day]).join(", ")} • ${windows[0]?.start_time.slice(0, 5)}-${windows[0]?.end_time.slice(0, 5)}`
+        : `${uniqueDays.map((day) => DAY_LABELS[day]).join(", ")} • ${formatTime12h(windows[0]!.start_time)}–${formatTime12h(windows[0]!.end_time)}`
     const sitesSummary =
       sites.length === 0 ? "No sites under protection yet." : sites.slice(0, 4).map((site) => site.hostname).join(", ")
     const timezone = windows[0]?.timezone ?? "America/Chicago"
     const today = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(new Date())
     const protectedToday = new Set(windows.map((window) => DAY_LABELS[window.day_of_week])).has(today)
-    const recentReason = events.find((event) => event.reason)?.reason ?? "No written reason logged yet."
-    const membershipOnlyCount = memberships.filter((membership) => membership.role === "member").length
-    const accountabilityText =
-      groups.length + membershipOnlyCount > 0
-        ? `${groups.length} circles and ${membershipOnlyCount} outside check-in relationships are ready for future shared progress.`
-        : "No shared accountability layer yet. This space is being held for that next step."
+
+    const uniqueDayLabels = uniqueDays.map((day) => DAY_LABELS[day])
+    const windowTimeRange =
+      windows.length === 0
+        ? ""
+        : `${formatTime12h(windows[0]!.start_time)} – ${formatTime12h(windows[0]!.end_time)}`
 
     return {
       activeNow,
@@ -151,12 +191,13 @@ function DashboardContent({
       scheduleSummary,
       sitesSummary,
       topSites,
-      recentReason,
-      accountabilityText,
       currentWindowLabel: activeNow ? "Protection is live right now." : protectedToday ? "Protected later today." : "No active protection today.",
-      mostRecentEventTime: events[0] ? new Date(events[0].created_at).toLocaleString() : "No activity logged yet."
+      mostRecentEventTime: events[0] ? formatTimestamp(events[0].created_at) : "No activity logged yet.",
+      uniqueDayLabels,
+      windowTimeRange,
+      siteHostnames: sites.slice(0, 8).map((s) => s.hostname)
     }
-  }, [events, groups.length, memberships, profile?.username, sites, windows])
+  }, [events, profile?.username, sites, windows])
 
   if (loading) {
     return (
@@ -169,12 +210,33 @@ function DashboardContent({
   return (
     <main className="space-y-6">
       {message ? <p className="text-sm text-[#6b544e]">{message}</p> : null}
-      <FocusDashboard model={model} />
+      <FocusDashboard
+        model={model}
+        events={events}
+        notifications={notifications}
+        friendUsernames={friendUsernames}
+        supabase={supabase}
+        userId={userId}
+      />
     </main>
   )
 }
 
-function FocusDashboard({ model }: { model: DashboardModel }) {
+function FocusDashboard({
+  model,
+  events,
+  notifications,
+  friendUsernames,
+  supabase,
+  userId
+}: {
+  model: DashboardModel
+  events: OverrideEvent[]
+  notifications: Notification[]
+  friendUsernames: Map<string, string>
+  supabase: SupabaseClient
+  userId: string
+}) {
   const focusScore = Math.max(0, 100 - model.weeklyOverrides * 9 - model.waitCount * 3)
 
   return (
@@ -186,7 +248,7 @@ function FocusDashboard({ model }: { model: DashboardModel }) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#9a6d62]">Daily focus</p>
                 <h3 className="mt-2 text-3xl font-semibold leading-tight text-[#2d201c]">
-                  A steadier read on how well your attention held today.
+                  A clear look at how your focus held.
                 </h3>
               </div>
               <span className="rounded-full bg-[#f4e4de] px-3 py-1 text-sm font-medium text-[#7b4f45]">{model.handle}</span>
@@ -198,16 +260,16 @@ function FocusDashboard({ model }: { model: DashboardModel }) {
                 <p className="mt-3 text-5xl font-semibold">{focusScore}</p>
                 <p className="mt-3 text-sm leading-6 text-[#ead7d1]">{model.currentWindowLabel}</p>
               </div>
-              <LedgerCard label="Pressure this week" value={`${model.weeklyOverrides}`} note="How often the blocker had to step in." />
-              <LedgerCard label="Deliberate choices" value={`${model.reasonCount}`} note="Times you made an active decision instead of waiting it out." />
+              <LedgerCard label="Bypasses this week" value={`${model.weeklyOverrides}`} note="Times you got through the block." />
+              <LedgerCard label="Reason bypasses" value={`${model.reasonCount}`} note="Times you entered a reason to continue." />
             </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title="Behavior note" subtitle="A dashboard should explain, not just count.">
-              <p className="text-sm leading-7 text-slate-600">{model.recentReason}</p>
+            <Panel title="Your overrides" subtitle="A log of every time you bypassed a block.">
+              <PersonalFeed events={events} />
             </Panel>
-            <Panel title="Pattern watch" subtitle="Where attention keeps drifting when things get shaky.">
+            <Panel title="Top sites" subtitle="The sites that pull hardest when focus slips.">
               {model.topSites.length > 0 ? (
                 <div className="space-y-3">
                   {model.topSites.map(([hostname, count]) => (
@@ -218,26 +280,285 @@ function FocusDashboard({ model }: { model: DashboardModel }) {
                   ))}
                 </div>
               ) : (
-                <MutedBox text="No visible drift pattern yet." />
+                <MutedBox text="No patterns yet. Keep going." />
               )}
             </Panel>
           </div>
         </div>
 
         <div className="space-y-4">
-          <Panel title="Daily posture" subtitle="A quieter summary of your current setup and rhythm.">
-            <Definition label="Current state" value={model.activeNow ? "Protected now" : "Standing by"} />
-            <Definition label="Schedule" value={model.scheduleSummary} />
-            <Definition label="Protected sites" value={`${model.sitesCount} · ${model.sitesSummary}`} />
-            <Definition label="Latest activity" value={model.mostRecentEventTime} />
-          </Panel>
+          <StatusCard model={model} />
 
-          <Panel title="Shared progress" subtitle="Space reserved for future group momentum and accountability.">
-            <p className="text-sm leading-7 text-slate-600">{model.accountabilityText}</p>
+          <Panel title="Friend overrides" subtitle="When your people slip, you'll know.">
+            <FriendsFeed
+              notifications={notifications}
+              friendUsernames={friendUsernames}
+              supabase={supabase}
+              userId={userId}
+            />
           </Panel>
         </div>
       </div>
     </section>
+  )
+}
+
+function StatusCard({ model }: { model: DashboardModel }) {
+  const isActive = model.activeNow
+  const hasWindow = model.windowsCount > 0
+
+  return (
+    <section className="rounded-[1.5rem] bg-white/85 p-5 shadow-sm ring-1 ring-[#eadcd7]">
+      <div className="flex items-center justify-between">
+        <h4 className="text-lg font-semibold text-[#2d201c]">Status</h4>
+        <span
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+            isActive
+              ? "bg-[#dcfce7] text-[#166534]"
+              : "bg-[#f1f5f9] text-[#64748b]"
+          }`}
+        >
+          <span
+            className={`inline-block h-1.5 w-1.5 rounded-full ${isActive ? "bg-[#22c55e]" : "bg-[#94a3b8]"}`}
+          />
+          {isActive ? "Protected now" : model.protectedToday ? "On later today" : "Standing by"}
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        {hasWindow ? (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[#9a6d62]">Schedule</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {model.uniqueDayLabels.map((day) => (
+                <span
+                  className="rounded-md bg-[#f7eeea] px-2 py-0.5 text-xs font-medium text-[#6b544e]"
+                  key={day}
+                >
+                  {day}
+                </span>
+              ))}
+            </div>
+            {model.windowTimeRange && (
+              <p className="mt-1.5 text-sm font-medium text-[#2d201c]">{model.windowTimeRange}</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-[#9a6d62]">No protection window set yet.</p>
+        )}
+
+        {model.siteHostnames.length > 0 ? (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[#9a6d62]">Blocking</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {model.siteHostnames.map((host) => (
+                <span
+                  className="rounded-md bg-[#f1f5f9] px-2 py-0.5 text-xs text-[#475569]"
+                  key={host}
+                >
+                  {host}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-[#9a6d62]">No sites under protection yet.</p>
+        )}
+
+        <div className="border-t border-[#efe4df] pt-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-[#9a6d62]">Last override</p>
+          <p className="mt-1 text-sm text-[#473632]">{model.mostRecentEventTime}</p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function PersonalFeed({ events }: { events: OverrideEvent[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const LIMIT = 3
+  const visible = expanded ? events : events.slice(0, LIMIT)
+  const hasMore = events.length > LIMIT
+
+  if (events.length === 0) {
+    return <MutedBox text="No overrides logged yet." />
+  }
+
+  return (
+    <div className="space-y-3">
+      {visible.map((event) => (
+        <div className="border-b border-[#efe4df] pb-3 last:border-b-0 last:pb-0" key={event.id}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-800">{event.hostname}</span>
+            <div className="flex items-center gap-2">
+              <MethodBadge method={event.method} />
+              <span className="text-xs text-[#9a6d62]">{formatTimestamp(event.created_at)}</span>
+            </div>
+          </div>
+          {event.reason ? (
+            <p className="mt-1 text-xs italic text-slate-500">"{event.reason}"</p>
+          ) : null}
+        </div>
+      ))}
+      {hasMore && (
+        <button
+          className="mt-1 text-xs font-medium text-[#7b4f45] hover:text-[#2d201c] transition-colors"
+          onClick={() => setExpanded((e) => !e)}
+          type="button"
+        >
+          {expanded ? "Show less" : `Show more (${events.length - LIMIT} more)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+type PingState = "idle" | "composing" | "sending" | "sent"
+
+function FriendsFeed({
+  notifications,
+  friendUsernames,
+  supabase,
+  userId
+}: {
+  notifications: Notification[]
+  friendUsernames: Map<string, string>
+  supabase: SupabaseClient
+  userId: string
+}) {
+  const [pingStates, setPingStates] = useState<Record<string, PingState>>({})
+  const [pingMessages, setPingMessages] = useState<Record<string, string>>({})
+  const [pingErrors, setPingErrors] = useState<Record<string, string>>({})
+  const [expanded, setExpanded] = useState(false)
+  const LIMIT = 3
+
+  if (notifications.length === 0) {
+    return <MutedBox text="No friend activity yet." />
+  }
+
+  const visible = expanded ? notifications : notifications.slice(0, LIMIT)
+  const hasMore = notifications.length > LIMIT
+
+  async function sendPing(notif: Notification) {
+    setPingStates((s) => ({ ...s, [notif.id]: "sending" }))
+    const message = pingMessages[notif.id]?.trim() || null
+    const { error } = await supabase.from("pings").insert({
+      sender_user_id: userId,
+      recipient_user_id: notif.sender_user_id,
+      notification_id: notif.id,
+      message
+    })
+    if (error) {
+      setPingErrors((e) => ({ ...e, [notif.id]: error.message }))
+      setPingStates((s) => ({ ...s, [notif.id]: "composing" }))
+    } else {
+      setPingStates((s) => ({ ...s, [notif.id]: "sent" }))
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {visible.map((notif) => {
+        const handle = `@${friendUsernames.get(notif.sender_user_id) ?? notif.sender_user_id}`
+        const pingState = pingStates[notif.id] ?? "idle"
+        const isCountsOnly = notif.exposure_level === "counts_only"
+
+        return (
+          <div className="border-b border-[#efe4df] pb-4 last:border-b-0 last:pb-0" key={notif.id}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-[#2d201c]">{handle}</span>
+                  {!isCountsOnly && <MethodBadge method={notif.method} />}
+                  {!isCountsOnly && (
+                    <span className="text-sm text-slate-700">{notif.hostname}</span>
+                  )}
+                </div>
+                <p className="text-xs text-[#9a6d62]">{formatTimestamp(notif.created_at)}</p>
+              </div>
+
+              {!isCountsOnly && pingState === "idle" && (
+                <button
+                  className="rounded-full bg-[#f4e4de] px-3 py-1 text-xs font-medium text-[#7b4f45] hover:bg-[#ebcfc7] transition-colors"
+                  onClick={() => setPingStates((s) => ({ ...s, [notif.id]: "composing" }))}
+                  type="button"
+                >
+                  Ping →
+                </button>
+              )}
+
+              {pingState === "sent" && (
+                <span className="text-xs font-medium text-[#166534]">Ping sent ✓</span>
+              )}
+            </div>
+
+            {notif.exposure_level === "reason_summary" && notif.reason ? (
+              <p className="mt-1 text-xs italic text-slate-500">"{notif.reason}"</p>
+            ) : null}
+
+            {(pingState === "composing" || pingState === "sending") && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  className="w-full rounded-xl border border-[#e0cec9] bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-[#9a6d62] focus:ring-2 focus:ring-[#9a6d62]/20 resize-none"
+                  onChange={(e) => setPingMessages((m) => ({ ...m, [notif.id]: e.target.value }))}
+                  placeholder="Say something… (optional)"
+                  rows={2}
+                  value={pingMessages[notif.id] ?? ""}
+                />
+                {pingErrors[notif.id] ? (
+                  <p className="text-xs text-red-600">{pingErrors[notif.id]}</p>
+                ) : null}
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-full bg-[#2d201c] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#473632] transition-colors disabled:opacity-50"
+                    disabled={pingState === "sending"}
+                    onClick={() => void sendPing(notif)}
+                    type="button"
+                  >
+                    {pingState === "sending" ? "Sending…" : "Send ping"}
+                  </button>
+                  <button
+                    className="rounded-full border border-[#e0cec9] px-4 py-1.5 text-xs font-medium text-[#6b544e] hover:bg-[#f7eeea] transition-colors"
+                    onClick={() => {
+                      setPingStates((s) => ({ ...s, [notif.id]: "idle" }))
+                      setPingMessages((m) => ({ ...m, [notif.id]: "" }))
+                      setPingErrors((e) => ({ ...e, [notif.id]: "" }))
+                    }}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {hasMore && (
+        <button
+          className="mt-1 text-xs font-medium text-[#7b4f45] hover:text-[#2d201c] transition-colors"
+          onClick={() => setExpanded((e) => !e)}
+          type="button"
+        >
+          {expanded ? "Show less" : `Show more (${notifications.length - LIMIT} more)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function MethodBadge({ method }: { method: string }) {
+  if (method === "wait") {
+    return (
+      <span className="rounded-full bg-[#dcfce7] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#166534]">
+        Waited
+      </span>
+    )
+  }
+  return (
+    <span className="rounded-full bg-[#fef3c7] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#92400e]">
+      Reason
+    </span>
   )
 }
 

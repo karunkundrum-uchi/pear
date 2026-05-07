@@ -72,9 +72,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="max-w-3xl">
               <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#9a6d62]">Pear</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#2d201c]">Attention control center</h1>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#2d201c]">Attention Control Center</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#6b544e]">
-                A calmer home for your focus, your routines, and the people you choose to bring into the process.
+                Manage your blocks, track your patterns, and stay accountable with friends.
               </p>
             </div>
 
