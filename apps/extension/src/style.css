@@ -181,3 +181,32 @@ button:disabled {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+.badge {
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+}
+
+.badge-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.instructions-list {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.instructions-list strong {
+  color: #0f172a;
+}

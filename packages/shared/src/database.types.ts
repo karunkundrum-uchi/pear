@@ -291,6 +291,72 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          id: string
+          recipient_user_id: string
+          sender_user_id: string
+          override_event_id: string | null
+          hostname: string
+          method: "wait" | "reason"
+          reason: string | null
+          exposure_level: "event_only" | "reason_summary" | "counts_only"
+          read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          recipient_user_id: string
+          sender_user_id: string
+          override_event_id?: string | null
+          hostname: string
+          method: "wait" | "reason"
+          reason?: string | null
+          exposure_level: "event_only" | "reason_summary" | "counts_only"
+          read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          recipient_user_id?: string
+          sender_user_id?: string
+          override_event_id?: string | null
+          hostname?: string
+          method?: "wait" | "reason"
+          reason?: string | null
+          exposure_level?: "event_only" | "reason_summary" | "counts_only"
+          read?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      pings: {
+        Row: {
+          id: string
+          sender_user_id: string
+          recipient_user_id: string
+          notification_id: string | null
+          message: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          sender_user_id: string
+          recipient_user_id: string
+          notification_id?: string | null
+          message?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          sender_user_id?: string
+          recipient_user_id?: string
+          notification_id?: string | null
+          message?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -36,8 +36,16 @@ export default function BlockPage() {
 
   async function grantOverride(method: "wait" | "reason") {
     setMessage("")
+    const currentTab = await chrome.tabs.getCurrent()
+
+    if (!currentTab?.id) {
+      setMessage("Pear could not determine the current tab.")
+      return
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "PEAR_GRANT_GRACE",
+      tabId: currentTab.id,
       hostname,
       targetUrl,
       method,

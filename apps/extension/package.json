@@ -28,7 +28,7 @@
   "manifest": {
     "name": "Pear",
     "description": "Intentional friction for high-risk doomscrolling windows.",
-    "permissions": ["cookies", "storage", "tabs", "webNavigation"],
+    "permissions": ["alarms", "cookies", "notifications", "storage", "tabs", "webNavigation"],
     "host_permissions": ["<all_urls>", "$PLASMO_PUBLIC_CLERK_SYNC_HOST/*", "$CLERK_FRONTEND_API/*"],
     "action": {
       "default_title": "Pear",
