@@ -227,7 +227,6 @@ async function lookupNotificationCadence(
 
   const globalMode = profile?.inbound_notification_mode ?? "on"
   if (globalMode === "off") return "off"
-  if (globalMode === "daily_digest_only") return "daily_digest"
 
   const { data: connection } = await supabase
     .from("friend_connections")
@@ -237,7 +236,7 @@ async function lookupNotificationCadence(
     .eq("status", "active")
     .maybeSingle()
 
-  if (!connection) return "realtime"
+  if (!connection) return globalMode === "daily_digest_only" ? "daily_digest" : "realtime"
 
   const { data: pref } = await supabase
     .from("accountability_preferences")
@@ -249,6 +248,7 @@ async function lookupNotificationCadence(
 
   const cadence = pref?.notification_cadence
   if (cadence === "off") return "off"
+  if (globalMode === "daily_digest_only") return "daily_digest"
   if (cadence === "daily_digest") return "daily_digest"
   return "realtime"
 }
