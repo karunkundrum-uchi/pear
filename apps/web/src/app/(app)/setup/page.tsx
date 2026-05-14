@@ -46,6 +46,8 @@ function SetupContent({
   const [sites, setSites] = useState<BlockedSite[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
   const [usernameDraft, setUsernameDraft] = useState("")
+  const [focusIntentionDraft, setFocusIntentionDraft] = useState("")
+  const [intentionSaving, setIntentionSaving] = useState(false)
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5])
   const [startTime, setStartTime] = useState("17:00")
   const [endTime, setEndTime] = useState("19:00")
@@ -86,6 +88,7 @@ function SetupContent({
       setSites(nextSites)
       setProfile(profileResult.data ?? null)
       setUsernameDraft(profileResult.data?.username ?? "")
+      setFocusIntentionDraft(profileResult.data?.focus_intention ?? "")
 
       if (nextWindows.length > 0) {
         setSelectedDays(nextWindows.map((window) => window.day_of_week))
@@ -220,6 +223,19 @@ function SetupContent({
     setUsernameDraft(nextUsername)
     setProfile((current) => (current ? { ...current, username: nextUsername } : current))
     setProfileMessage("Username updated.")
+  }
+
+  async function saveFocusIntention() {
+    setIntentionSaving(true)
+    setProfileMessage("")
+    const supabase = createClerkSupabaseClient(session)
+    const { error } = await supabase
+      .from("profiles")
+      .update({ focus_intention: focusIntentionDraft.trim() || null })
+      .eq("id", userId)
+    setIntentionSaving(false)
+    if (error) { setProfileMessage(error.message); return }
+    setProfileMessage("Focus intention saved.")
   }
 
   if (loading) {
@@ -397,6 +413,28 @@ function SetupContent({
                   </button>
 
                   {profileMessage ? <p className="text-sm text-[#6b544e]">{profileMessage}</p> : null}
+
+                  <div className="mt-6 border-t border-[#eadcd7] pt-5">
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-700">Why are you blocking distracting sites?</span>
+                      <p className="mt-0.5 text-xs text-[#9a6d62]">Shown to you on the block screen as a reminder.</p>
+                      <textarea
+                        className="mt-2 w-full rounded-xl border border-[#d8c2ba] bg-white px-3 py-2 text-sm text-[#2d201c] placeholder:text-[#b8a09a] outline-none focus:border-[#b88579] focus:ring-2 focus:ring-[#f4e4de] resize-none"
+                        onChange={(e) => setFocusIntentionDraft(e.target.value)}
+                        placeholder="e.g. I want to get better sleep, stop wasting time on social media during work hours"
+                        rows={2}
+                        value={focusIntentionDraft}
+                      />
+                    </label>
+                    <button
+                      className="mt-2 w-full rounded-xl bg-white px-4 py-3 text-sm font-medium text-[#5d3d36] shadow-sm ring-1 ring-[#d8c2ba] hover:bg-[#fff8f5] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={intentionSaving}
+                      onClick={() => void saveFocusIntention()}
+                      type="button"
+                    >
+                      {intentionSaving ? "Saving..." : "Save intention"}
+                    </button>
+                  </div>
                 </div>
               </section>
             </aside>

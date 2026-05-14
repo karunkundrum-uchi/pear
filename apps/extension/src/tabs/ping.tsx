@@ -49,10 +49,10 @@ export default function PingPage() {
     <main className="block-shell">
       <section className="block-card">
         <p className="brand">Pear</p>
-        <h1 className="title">@{senderUsername} is doomscrolling</h1>
-        <p className="muted">Send them a check-in. A message is optional — a quick ping still gets through.</p>
+        <h1 className="title">Check in on @{senderUsername}</h1>
+        <p className="muted">A quick ping goes a long way. Add a note if you want — or just send it.</p>
 
-        <form className="block-actions" onSubmit={sendPing}>
+        <form className="stack" onSubmit={sendPing}>
           <textarea
             autoFocus
             className="textarea"

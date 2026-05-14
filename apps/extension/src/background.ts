@@ -45,8 +45,14 @@ const GRACE_STORAGE_KEY = "pear_grace_periods"
 const SEEN_NOTIFICATIONS_KEY = "pear_seen_notifications"
 const SEEN_PINGS_KEY = "pear_seen_pings"
 const DIGEST_QUEUE_KEY = "pear_digest_queue"
+const BLOCK_CONTEXT_KEY = "pear_block_context"
 const POLL_ALARM = "pear-poll-notifications"
 const DIGEST_ALARM = "pear-daily-digest"
+
+type BlockContext = {
+  focusIntention: string | null
+  friendUsernames: string[]
+}
 
 const clerkPublishableKey = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
 const clerkSyncHost = process.env.PLASMO_PUBLIC_CLERK_SYNC_HOST
@@ -555,6 +561,23 @@ async function getConfig(): Promise<ConfigCache> {
     fetchedAt: Date.now(),
     windows: windowsResult.data ?? [],
     sites: sitesResult.data ?? []
+  }
+
+  // Non-fatal — fetch block context for the block page
+  try {
+    const [profileResult, friendsResult] = await Promise.all([
+      supabase.from("profiles").select("focus_intention").eq("id", identity.userId).maybeSingle(),
+      supabase.from("friend_connections").select("friend_user_id").eq("user_id", identity.userId).eq("status", "active")
+    ])
+    const friendIds = (friendsResult.data ?? []).map((f) => f.friend_user_id).filter((id): id is string => Boolean(id))
+    const friendUsernames = await Promise.all(friendIds.map((id) => resolveUsername(id, supabase)))
+    const blockContext: BlockContext = {
+      focusIntention: profileResult.data?.focus_intention ?? null,
+      friendUsernames
+    }
+    await chrome.storage.local.set({ [BLOCK_CONTEXT_KEY]: blockContext })
+  } catch {
+    // best-effort — block page falls back to empty state
   }
 
   return configCache
