@@ -44,14 +44,27 @@ const CONFIG_CACHE_MS = 60 * 1000
 const GRACE_STORAGE_KEY = "pear_grace_periods"
 const SEEN_NOTIFICATIONS_KEY = "pear_seen_notifications"
 const SEEN_PINGS_KEY = "pear_seen_pings"
+const DIGEST_QUEUE_KEY = "pear_digest_queue"
 const POLL_ALARM = "pear-poll-notifications"
+const DIGEST_ALARM = "pear-daily-digest"
 
 const clerkPublishableKey = process.env.PLASMO_PUBLIC_CLERK_PUBLISHABLE_KEY
 const clerkSyncHost = process.env.PLASMO_PUBLIC_CLERK_SYNC_HOST
+type DigestEntry = {
+  id: string
+  senderUserId: string
+  hostname: string
+  method: "wait" | "reason"
+  reason: string | null
+  exposure_level: "event_only" | "reason_summary" | "counts_only"
+  createdAt: string
+}
+
 let configCache: ConfigCache | null = null
 let realtimeChannel: ReturnType<ReturnType<typeof createExtensionSupabaseClient>["channel"]> | null = null
 const pendingPings = new Map<string, PendingPing>()
 const usernameCache = new Map<string, string>()
+const cadenceCache = new Map<string, "realtime" | "daily_digest">()
 
 if (!clerkPublishableKey || !clerkSyncHost) {
   throw new Error("Missing Clerk extension environment variables")
@@ -63,6 +76,7 @@ const CLERK_SYNC_HOST: string = clerkSyncHost
 chrome.runtime.onInstalled.addListener(() => {
   void refreshConfig()
   void schedulePollAlarm()
+  void scheduleDigestAlarm()
   void setupRealtimeSubscriptions()
   void pollNewNotifications()
 })
@@ -70,6 +84,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void refreshConfig()
   void schedulePollAlarm()
+  void scheduleDigestAlarm()
   void setupRealtimeSubscriptions()
   void pollNewNotifications()
 })
@@ -79,6 +94,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // Reconnect Realtime if the channel dropped, then poll as fallback
     void setupRealtimeSubscriptions()
     void pollNewNotifications()
+  }
+  if (alarm.name === DIGEST_ALARM) {
+    void drainDigestQueue()
   }
 })
 
@@ -161,7 +179,17 @@ async function handleIncomingNotification(
 ) {
   const seen = await getSeenIds(SEEN_NOTIFICATIONS_KEY)
   if (seen.includes(notification.id)) return
-  await showOverrideNotification(notification, supabase)
+
+  const identity = await getIdentity()
+  const cadence = identity
+    ? await lookupNotificationCadence(supabase, identity.userId, notification.sender_user_id)
+    : "realtime"
+
+  if (cadence === "daily_digest") {
+    await enqueueDigest(notification)
+  } else {
+    await showOverrideNotification(notification, supabase)
+  }
   await markSeen(SEEN_NOTIFICATIONS_KEY, [notification.id])
 }
 
@@ -180,6 +208,88 @@ async function schedulePollAlarm() {
   if (!existing) {
     chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.5 })
   }
+}
+
+async function scheduleDigestAlarm() {
+  const existing = await chrome.alarms.get(DIGEST_ALARM)
+  if (!existing) {
+    chrome.alarms.create(DIGEST_ALARM, { delayInMinutes: 24 * 60, periodInMinutes: 24 * 60 })
+  }
+}
+
+async function lookupNotificationCadence(
+  supabase: ReturnType<typeof createExtensionSupabaseClient>,
+  recipientUserId: string,
+  senderUserId: string
+): Promise<"realtime" | "daily_digest"> {
+  const cacheKey = `${recipientUserId}:${senderUserId}`
+  const cached = cadenceCache.get(cacheKey)
+  if (cached) return cached
+
+  const { data: connection } = await supabase
+    .from("friend_connections")
+    .select("id")
+    .eq("user_id", recipientUserId)
+    .eq("friend_user_id", senderUserId)
+    .eq("status", "active")
+    .maybeSingle()
+
+  if (!connection) {
+    cadenceCache.set(cacheKey, "realtime")
+    return "realtime"
+  }
+
+  const { data: pref } = await supabase
+    .from("accountability_preferences")
+    .select("notification_cadence")
+    .eq("owner_user_id", recipientUserId)
+    .eq("friend_connection_id", connection.id)
+    .eq("scope_type", "friend_default")
+    .maybeSingle()
+
+  const cadence: "realtime" | "daily_digest" =
+    pref?.notification_cadence === "daily_digest" ? "daily_digest" : "realtime"
+  cadenceCache.set(cacheKey, cadence)
+  return cadence
+}
+
+async function enqueueDigest(notification: Notification) {
+  const result = await chrome.storage.local.get(DIGEST_QUEUE_KEY)
+  const queue: DigestEntry[] = result[DIGEST_QUEUE_KEY] ?? []
+  const entry: DigestEntry = {
+    id: notification.id,
+    senderUserId: notification.sender_user_id,
+    hostname: notification.hostname,
+    method: notification.method,
+    reason: notification.reason,
+    exposure_level: notification.exposure_level,
+    createdAt: notification.created_at
+  }
+  queue.push(entry)
+  await chrome.storage.local.set({ [DIGEST_QUEUE_KEY]: queue })
+}
+
+async function drainDigestQueue() {
+  const identity = await getIdentity()
+  if (!identity) return
+
+  const result = await chrome.storage.local.get(DIGEST_QUEUE_KEY)
+  const queue: DigestEntry[] = result[DIGEST_QUEUE_KEY] ?? []
+  if (queue.length === 0) return
+
+  await chrome.storage.local.set({ [DIGEST_QUEUE_KEY]: [] })
+
+  const supabase = createExtensionSupabaseClient(identity.token)
+  const senderIds = [...new Set(queue.map((e) => e.senderUserId))]
+  const names = await Promise.all(senderIds.map((id) => resolveUsername(id, supabase)))
+  const nameList = names.map((n) => `@${n}`).join(", ")
+
+  chrome.notifications.create("pear-digest", {
+    type: "basic",
+    iconUrl: getIconUrl(),
+    title: `Pear — ${queue.length} override${queue.length > 1 ? "s" : ""} today`,
+    message: `From ${nameList}`
+  })
 }
 
 async function getSeenIds(key: string): Promise<string[]> {
@@ -226,7 +336,12 @@ async function pollNewNotifications() {
   const newPings = (pingResult.data ?? []).filter((p) => !seenPings.includes(p.id))
 
   for (const notification of newNotifications) {
-    await showOverrideNotification(notification, supabase)
+    const cadence = await lookupNotificationCadence(supabase, identity.userId, notification.sender_user_id)
+    if (cadence === "daily_digest") {
+      await enqueueDigest(notification)
+    } else {
+      await showOverrideNotification(notification, supabase)
+    }
   }
   for (const ping of newPings) {
     await showPingNotification(ping, supabase)

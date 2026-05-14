@@ -19,9 +19,9 @@ const NAV_ITEMS = [
     description: "Windows, sites, and install"
   },
   {
-    href: "/groups",
-    label: "Groups",
-    description: "Friends and accountability"
+    href: "/friends",
+    label: "Friends",
+    description: "Accountability contacts"
   }
 ] as const
 
