@@ -18,6 +18,7 @@ export type Database = {
           email: string | null
           display_name: string | null
           username: string
+          inbound_notification_mode: "on" | "daily_digest_only" | "off"
           created_at: string
           updated_at: string
         }
@@ -26,6 +27,7 @@ export type Database = {
           email?: string | null
           display_name?: string | null
           username?: string
+          inbound_notification_mode?: "on" | "daily_digest_only" | "off"
           created_at?: string
           updated_at?: string
         }
@@ -34,6 +36,7 @@ export type Database = {
           email?: string | null
           display_name?: string | null
           username?: string
+          inbound_notification_mode?: "on" | "daily_digest_only" | "off"
           created_at?: string
           updated_at?: string
         }

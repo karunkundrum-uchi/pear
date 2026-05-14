@@ -64,7 +64,6 @@ let configCache: ConfigCache | null = null
 let realtimeChannel: ReturnType<ReturnType<typeof createExtensionSupabaseClient>["channel"]> | null = null
 const pendingPings = new Map<string, PendingPing>()
 const usernameCache = new Map<string, string>()
-const cadenceCache = new Map<string, "realtime" | "daily_digest">()
 
 if (!clerkPublishableKey || !clerkSyncHost) {
   throw new Error("Missing Clerk extension environment variables")
@@ -155,7 +154,7 @@ async function setupRealtimeSubscriptions() {
         filter: `recipient_user_id=eq.${identity.userId}`
       },
       (payload) => {
-        void handleIncomingNotification(payload.new as Notification, supabase)
+        void handleIncomingNotification(payload.new as Notification, supabase, identity.userId)
       }
     )
     .on(
@@ -175,19 +174,17 @@ async function setupRealtimeSubscriptions() {
 
 async function handleIncomingNotification(
   notification: Notification,
-  supabase: ReturnType<typeof createExtensionSupabaseClient>
+  supabase: ReturnType<typeof createExtensionSupabaseClient>,
+  recipientUserId: string
 ) {
   const seen = await getSeenIds(SEEN_NOTIFICATIONS_KEY)
   if (seen.includes(notification.id)) return
 
-  const identity = await getIdentity()
-  const cadence = identity
-    ? await lookupNotificationCadence(supabase, identity.userId, notification.sender_user_id)
-    : "realtime"
+  const cadence = await lookupNotificationCadence(supabase, recipientUserId, notification.sender_user_id)
 
   if (cadence === "daily_digest") {
     await enqueueDigest(notification)
-  } else {
+  } else if (cadence !== "off") {
     await showOverrideNotification(notification, supabase)
   }
   await markSeen(SEEN_NOTIFICATIONS_KEY, [notification.id])
@@ -221,10 +218,16 @@ async function lookupNotificationCadence(
   supabase: ReturnType<typeof createExtensionSupabaseClient>,
   recipientUserId: string,
   senderUserId: string
-): Promise<"realtime" | "daily_digest"> {
-  const cacheKey = `${recipientUserId}:${senderUserId}`
-  const cached = cadenceCache.get(cacheKey)
-  if (cached) return cached
+): Promise<"realtime" | "daily_digest" | "off"> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("inbound_notification_mode")
+    .eq("id", recipientUserId)
+    .maybeSingle()
+
+  const globalMode = profile?.inbound_notification_mode ?? "on"
+  if (globalMode === "off") return "off"
+  if (globalMode === "daily_digest_only") return "daily_digest"
 
   const { data: connection } = await supabase
     .from("friend_connections")
@@ -234,10 +237,7 @@ async function lookupNotificationCadence(
     .eq("status", "active")
     .maybeSingle()
 
-  if (!connection) {
-    cadenceCache.set(cacheKey, "realtime")
-    return "realtime"
-  }
+  if (!connection) return "realtime"
 
   const { data: pref } = await supabase
     .from("accountability_preferences")
@@ -247,10 +247,10 @@ async function lookupNotificationCadence(
     .eq("scope_type", "friend_default")
     .maybeSingle()
 
-  const cadence: "realtime" | "daily_digest" =
-    pref?.notification_cadence === "daily_digest" ? "daily_digest" : "realtime"
-  cadenceCache.set(cacheKey, cadence)
-  return cadence
+  const cadence = pref?.notification_cadence
+  if (cadence === "off") return "off"
+  if (cadence === "daily_digest") return "daily_digest"
+  return "realtime"
 }
 
 async function enqueueDigest(notification: Notification) {
@@ -339,7 +339,7 @@ async function pollNewNotifications() {
     const cadence = await lookupNotificationCadence(supabase, identity.userId, notification.sender_user_id)
     if (cadence === "daily_digest") {
       await enqueueDigest(notification)
-    } else {
+    } else if (cadence !== "off") {
       await showOverrideNotification(notification, supabase)
     }
   }

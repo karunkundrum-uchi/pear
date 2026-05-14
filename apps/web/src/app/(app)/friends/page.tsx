@@ -45,14 +45,29 @@ const CADENCE_OPTIONS: Array<{
 }> = [
   {
     value: "realtime",
-    label: "Realtime",
-    description: "Notified the moment you override."
+    label: "Realtime (Recommended)",
+    description: "Notify me immediately when they override."
   },
   {
     value: "daily_digest",
     label: "Daily digest",
-    description: "One summary at the end of the day."
+    description: "Send me a daily summary of their overrides."
+  },
+  {
+    value: "off",
+    label: "Off",
+    description: "Don't notify me about their overrides."
   }
+]
+
+const INBOUND_MODE_OPTIONS: Array<{
+  value: "on" | "daily_digest_only" | "off"
+  label: string
+  description: string
+}> = [
+  { value: "on", label: "On", description: "Use per-friend settings." },
+  { value: "daily_digest_only", label: "Digest only", description: "Batch all to once per day." },
+  { value: "off", label: "Off", description: "No notifications from anyone." }
 ]
 
 export default function FriendsPage() {
@@ -82,12 +97,16 @@ function FriendsContent({
   const [editingFriendId, setEditingFriendId] = useState<string | null>(null)
   const [editExposure, setEditExposure] = useState<TableInsert<"accountability_preferences">["exposure_level"]>("reason_summary")
   const [editCadence, setEditCadence] = useState<TableInsert<"accountability_preferences">["notification_cadence"]>("realtime")
+  const [inboundMode, setInboundMode] = useState<"on" | "daily_digest_only" | "off">("on")
+  const [editingInboundMode, setEditingInboundMode] = useState(false)
+  const [draftInboundMode, setDraftInboundMode] = useState<"on" | "daily_digest_only" | "off">("on")
 
   async function loadFriendsState() {
     const supabase = createClerkSupabaseClient(session)
-    const [friendsResult, preferencesResult] = await Promise.all([
+    const [friendsResult, preferencesResult, profileResult] = await Promise.all([
       supabase.from("friend_connections").select("*").or(`user_id.eq.${userId},friend_user_id.eq.${userId}`).order("created_at", { ascending: false }),
-      supabase.from("accountability_preferences").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false })
+      supabase.from("accountability_preferences").select("*").eq("owner_user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("profiles").select("inbound_notification_mode").eq("id", userId).maybeSingle()
     ])
 
     if (friendsResult.error || preferencesResult.error) {
@@ -99,6 +118,10 @@ function FriendsContent({
     const nextFriends = friendsResult.data ?? []
     setFriends(nextFriends)
     setPreferences(preferencesResult.data ?? [])
+    if (profileResult.data?.inbound_notification_mode) {
+      setInboundMode(profileResult.data.inbound_notification_mode)
+      setDraftInboundMode(profileResult.data.inbound_notification_mode)
+    }
 
     const relatedProfileIds: string[] = Array.from(
       new Set(
@@ -120,6 +143,12 @@ function FriendsContent({
     }
 
     setLoading(false)
+  }
+
+  async function saveInboundMode(mode: "on" | "daily_digest_only" | "off") {
+    setInboundMode(mode)
+    const supabase = createClerkSupabaseClient(session)
+    await supabase.from("profiles").update({ inbound_notification_mode: mode }).eq("id", userId)
   }
 
   useEffect(() => {
@@ -448,7 +477,7 @@ function FriendsContent({
               value={addExposure}
             />
             <PreferenceGroup
-              label="When they're notified"
+              label="Notifications"
               name="add-notification-cadence"
               onChange={(v) => setAddCadence(v as typeof addCadence)}
               options={CADENCE_OPTIONS}
@@ -466,8 +495,55 @@ function FriendsContent({
         </form>
       </div>
 
-      {/* Right column — friends list + pending requests */}
+      {/* Right column — notification mode + friends list + pending requests */}
       <div className="space-y-4">
+        {/* Global inbound notification mode */}
+        <div className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9a6d62]">Notifications</p>
+            {!editingInboundMode ? (
+              <button
+                className="text-[11px] font-medium text-[#9a6d62] underline underline-offset-2 hover:text-[#6f4338]"
+                onClick={() => { setDraftInboundMode(inboundMode); setEditingInboundMode(true) }}
+                type="button"
+              >
+                Edit
+              </button>
+            ) : (
+              <button
+                className="text-[11px] font-medium text-[#9a6d62] underline underline-offset-2 hover:text-[#6f4338]"
+                onClick={() => setEditingInboundMode(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+          {!editingInboundMode ? (
+            <span className="inline-block rounded-full bg-[#f4e4de] px-2.5 py-0.5 text-[11px] font-semibold text-[#6f4338]">
+              {INBOUND_MODE_OPTIONS.find((o) => o.value === inboundMode)?.label ?? "On"}
+            </span>
+          ) : (
+            <div className="mt-2 space-y-3">
+              <PreferenceGroup
+                label=""
+                name="inbound-notification-mode"
+                onChange={(v) => setDraftInboundMode(v as typeof inboundMode)}
+                options={INBOUND_MODE_OPTIONS}
+                value={draftInboundMode}
+              />
+              <button
+                className="w-full rounded-lg bg-[#2d201c] py-2 text-xs font-semibold text-white hover:bg-[#4a342e] disabled:opacity-50"
+                disabled={saving}
+                onClick={() => { void saveInboundMode(draftInboundMode); setEditingInboundMode(false) }}
+                type="button"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Active friends */}
         <div className="rounded-[1.5rem] border border-[#eadcd7] bg-white/85 p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
@@ -518,7 +594,7 @@ function FriendsContent({
                           value={editExposure}
                         />
                         <PreferenceGroup
-                          label="When they're notified"
+                          label="Notifications"
                           name={`cadence-${friend.id}`}
                           onChange={(v) => setEditCadence(v as typeof editCadence)}
                           options={CADENCE_OPTIONS}
